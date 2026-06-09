@@ -13,7 +13,6 @@ export default function Results({ gameState, results, myId, onRestart }) {
   const { winner, tally, undercoverId, undercoverName, undercoverWord, citizenWord, players, votes } = results;
   const isCitizensWin = winner === "citizens";
   const isHost = gameState.players?.find((p) => p.id === myId)?.isHost;
-  const myVote = votes?.[myId];
   const maxVotes = Math.max(...Object.values(tally || {}));
 
   const handleRestart = () => {
@@ -64,7 +63,6 @@ export default function Results({ gameState, results, myId, onRestart }) {
               const count = tally[p.id] || 0;
               const pct = maxVotes > 0 ? (count / maxVotes) * 100 : 0;
               const isUndercover = p.id === undercoverId;
-              const isAccused = count === maxVotes && maxVotes > 0;
 
               return (
                 <div key={p.id} style={{

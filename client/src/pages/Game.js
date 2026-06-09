@@ -3,7 +3,6 @@ import socket from "../socket";
 
 function TimerBar({ seconds, total = 20 }) {
   const pct = Math.max(0, (seconds / total) * 100);
-  const urgent = seconds <= 5;
   return (
     <div className="timer-bar-wrap">
       <div className="timer-bar" style={{ width: `${pct}%` }} />
