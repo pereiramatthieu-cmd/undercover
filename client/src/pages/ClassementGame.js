@@ -23,7 +23,6 @@ export default function ClassementGame({ classementState, myId, secretNumber }) 
   const rankingInitRef = useRef(false);
 
   const phase = classementState?.phase;
-  const players = classementState?.players || [];
   const answers = classementState?.answers || {};
 
   // Reset everything on new round
@@ -39,9 +38,10 @@ export default function ClassementGame({ classementState, myId, secretNumber }) 
   useEffect(() => {
     if (phase === "ranking" && !rankingInitRef.current) {
       rankingInitRef.current = true;
+      const players = classementState?.players || [];
       setRanking(players.filter((p) => p.id !== myId));
     }
-  }, [phase, players, myId]);
+  }, [phase, classementState?.players, myId]);
 
   const handleAnswer = () => {
     if (!answer.trim()) return;

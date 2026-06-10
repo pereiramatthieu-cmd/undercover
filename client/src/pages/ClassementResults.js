@@ -70,8 +70,6 @@ export default function ClassementResults({ classementState, myId }) {
             {rankedPlayers.map((p, i) => {
               const isMe = p.id === myId;
               const pts = roundScores[p.id] ?? 0;
-              const isFirst = i === 0;
-              const isLast = i === rankedPlayers.length - 1;
 
               return (
                 <div
