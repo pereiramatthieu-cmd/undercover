@@ -12,7 +12,8 @@ export default function Home({ onJoin, gameType }) {
     if (!name.trim()) return setError("Entre ton prénom !");
     setLoading(true);
     setError("");
-    socket.emit(gameType === "lanote" ? "note:create" : "room:create", { playerName: name.trim() }, (res) => {
+    const createEvent = gameType === "lanote" ? "note:create" : gameType === "classement" ? "classement:create" : "room:create";
+    socket.emit(createEvent, { playerName: name.trim() }, (res) => {
       setLoading(false);
       if (res.success) {
         onJoin(res.code, name.trim());
@@ -27,7 +28,8 @@ export default function Home({ onJoin, gameType }) {
     if (!code.trim()) return setError("Entre le code de la room !");
     setLoading(true);
     setError("");
-    socket.emit(gameType === "lanote" ? "note:join" : "room:join", { playerName: name.trim(), code: code.trim().toUpperCase() }, (res) => {
+    const joinEvent = gameType === "lanote" ? "note:join" : gameType === "classement" ? "classement:join" : "room:join";
+    socket.emit(joinEvent, { playerName: name.trim(), code: code.trim().toUpperCase() }, (res) => {
       setLoading(false);
       if (res.success) {
         onJoin(res.code, name.trim());
@@ -46,6 +48,11 @@ export default function Home({ onJoin, gameType }) {
             <>
               <div className="logo">la <span>note</span></div>
               <p className="text-muted mt-8">Le jeu des notes secrètes</p>
+            </>
+          ) : gameType === "classement" ? (
+            <>
+              <div className="logo">le <span>classement</span></div>
+              <p className="text-muted mt-8">Le jeu des numéros secrets</p>
             </>
           ) : (
             <>

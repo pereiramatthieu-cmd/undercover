@@ -4,6 +4,9 @@ import GameSelect from "./pages/GameSelect";
 import NoteLobby from "./pages/NoteLobby";
 import NoteGame from "./pages/NoteGame";
 import NoteResults from "./pages/NoteResults";
+import ClassementLobby from "./pages/ClassementLobby";
+import ClassementGame from "./pages/ClassementGame";
+import ClassementResults from "./pages/ClassementResults";
 import Home from "./pages/Home";
 import Lobby from "./pages/Lobby";
 import Game from "./pages/Game";
@@ -21,6 +24,8 @@ export default function App() {
   const [results, setResults] = useState(null);
   const [noteState, setNoteState] = useState(null);
   const [noteSecretNote, setNoteSecretNote] = useState(null);
+  const [classementState, setClassementState] = useState(null);
+  const [classementSecretNumber, setClassementSecretNumber] = useState(null);
 
   useEffect(() => {
     socket.connect();
@@ -55,12 +60,26 @@ export default function App() {
       setNoteSecretNote(note);
     });
 
+    socket.on("classement:state", (state) => {
+      setClassementState(state);
+      if (state.state === "lobby") setPage("classementLobby");
+      else if (state.state === "playing" && state.phase === "round_results") setPage("classementResults");
+      else if (state.state === "playing") setPage("classementGame");
+      else if (state.state === "gameover") setPage("classementResults");
+    });
+
+    socket.on("classement:secret", ({ number }) => {
+      setClassementSecretNumber(number);
+    });
+
     return () => {
       socket.off("game:state");
       socket.off("game:word");
       socket.off("game:results");
       socket.off("note:state");
       socket.off("note:secret");
+      socket.off("classement:state");
+      socket.off("classement:secret");
     };
   }, []);
 
@@ -72,8 +91,13 @@ export default function App() {
   const handleJoin = (code, name) => {
     setRoomCode(code);
     setPlayerName(name);
-    if (gameType !== "lanote") setPage("lobby");
-    else setNoteSecretNote(null);
+    if (gameType === "lanote") {
+      setNoteSecretNote(null);
+    } else if (gameType === "classement") {
+      setClassementSecretNumber(null);
+    } else {
+      setPage("lobby");
+    }
   };
 
   const handleRestart = () => {
@@ -119,6 +143,15 @@ export default function App() {
       )}
       {page === "noteResults" && (
         <NoteResults noteState={noteState} myId={socket.id} />
+      )}
+      {page === "classementLobby" && (
+        <ClassementLobby classementState={classementState} roomCode={roomCode} playerName={playerName} myId={socket.id} />
+      )}
+      {page === "classementGame" && (
+        <ClassementGame classementState={classementState} myId={socket.id} secretNumber={classementSecretNumber} />
+      )}
+      {page === "classementResults" && (
+        <ClassementResults classementState={classementState} myId={socket.id} />
       )}
     </div>
   );

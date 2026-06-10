@@ -131,9 +131,9 @@ const GAMES = [
   {
     id: "classement",
     title: "Le Classement",
-    description: "Classez des éléments dans le bon ordre. Défiez vos amis sur votre culture générale.",
+    description: "Chacun reçoit un numéro secret. Répondez aux questions et classez les autres joueurs du plus petit au plus grand.",
     illustration: <ClassementIllustration />,
-    available: false,
+    available: true,
   },
 ];
 

@@ -3,6 +3,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
 const wordPairs = require("./words");
+const classementQuestions = require("./classement_questions");
 
 const app = express();
 app.use(cors());
@@ -19,6 +20,7 @@ const io = new Server(server, {
 // rooms[roomCode] = { players, state, wordPair, currentTurn, round, hints, votes }
 const rooms = {};
 const noteRooms = {};
+const classementRooms = {};
 
 function generateRoomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -160,6 +162,73 @@ function startNoteRound(code) {
 
   io.to(room.maitre).emit("note:secret", { note: room.secretNote });
   io.to(code).emit("note:state", getNoteRoomSummary(room));
+}
+
+// ─── Le Classement helpers ───
+
+function getClassementRoomSummary(room) {
+  const reveal = room.phase === "round_results";
+  return {
+    code: room.code,
+    players: room.players.map((p) => ({
+      id: p.id,
+      name: p.name,
+      isHost: p.isHost,
+      score: p.score,
+      secretNumber: reveal ? p.secretNumber : null,
+    })),
+    state: room.state,
+    phase: room.phase,
+    theme: room.theme,
+    totalRounds: room.totalRounds,
+    currentRound: room.currentRound,
+    currentQuestion: room.currentQuestion,
+    answerCount: Object.keys(room.answers).length,
+    totalPlayers: room.players.length,
+    // Reveal answers only when ranking or showing results
+    answers: room.phase === "ranking" || room.phase === "round_results" ? room.answers : {},
+    rankingCount: Object.keys(room.rankings).length,
+    roundScores: reveal ? room.roundScores : {},
+    // Correct order revealed only at results
+    correctOrder: reveal ? room.correctOrder : null,
+  };
+}
+
+function startClassementRound(code) {
+  const room = classementRooms[code];
+  if (!room) return;
+
+  room.currentRound += 1;
+
+  // Assign unique secret numbers 1-100
+  const used = new Set();
+  room.players.forEach((p) => {
+    let n;
+    do { n = Math.floor(Math.random() * 100) + 1; } while (used.has(n));
+    used.add(n);
+    p.secretNumber = n;
+  });
+
+  // Correct order: players sorted by secretNumber ascending (lowest first)
+  room.correctOrder = [...room.players]
+    .sort((a, b) => a.secretNumber - b.secretNumber)
+    .map((p) => p.id);
+
+  // Random question from theme
+  const pool = classementQuestions[room.theme];
+  room.currentQuestion = pool[Math.floor(Math.random() * pool.length)];
+
+  room.answers = {};
+  room.rankings = {};
+  room.roundScores = {};
+  room.phase = "answering";
+
+  // Send each player their private secret number
+  room.players.forEach((p) => {
+    io.to(p.id).emit("classement:secret", { number: p.secretNumber });
+  });
+
+  io.to(code).emit("classement:state", getClassementRoomSummary(room));
 }
 
 io.on("connection", (socket) => {
@@ -510,6 +579,139 @@ io.on("connection", (socket) => {
     callback?.({ success: true });
   });
 
+  // ─── Le Classement events ───
+
+  socket.on("classement:create", ({ playerName }, callback) => {
+    let code;
+    do { code = generateRoomCode(); } while (classementRooms[code]);
+
+    classementRooms[code] = {
+      code,
+      players: [{ id: socket.id, name: playerName, isHost: true, score: 0, secretNumber: null }],
+      state: "lobby",
+      phase: null,
+      theme: null,
+      totalRounds: null,
+      currentRound: 0,
+      currentQuestion: null,
+      answers: {},
+      rankings: {},
+      roundScores: {},
+      correctOrder: [],
+    };
+
+    socket.join(code);
+    socket.classementRoomCode = code;
+    callback({ success: true, code });
+    io.to(code).emit("classement:state", getClassementRoomSummary(classementRooms[code]));
+  });
+
+  socket.on("classement:join", ({ playerName, code }, callback) => {
+    const room = classementRooms[code];
+    if (!room) return callback({ success: false, error: "Room introuvable." });
+    if (room.state !== "lobby") return callback({ success: false, error: "La partie a déjà commencé." });
+    if (room.players.length >= 8) return callback({ success: false, error: "La room est pleine (8 joueurs max)." });
+    if (room.players.find((p) => p.name.toLowerCase() === playerName.toLowerCase()))
+      return callback({ success: false, error: "Ce pseudo est déjà pris." });
+
+    room.players.push({ id: socket.id, name: playerName, isHost: false, score: 0, secretNumber: null });
+    socket.join(code);
+    socket.classementRoomCode = code;
+    callback({ success: true, code });
+    io.to(code).emit("classement:state", getClassementRoomSummary(room));
+  });
+
+  socket.on("classement:start", ({ theme, totalRounds }, callback) => {
+    const code = socket.classementRoomCode;
+    const room = classementRooms[code];
+    if (!room) return callback?.({ success: false });
+    if (!room.players.find((p) => p.id === socket.id)?.isHost)
+      return callback?.({ success: false, error: "Seul l'hôte peut lancer." });
+    if (room.players.length < 2)
+      return callback?.({ success: false, error: "Il faut au moins 2 joueurs." });
+    if (!classementQuestions[theme])
+      return callback?.({ success: false, error: "Thème invalide." });
+
+    room.theme = theme;
+    room.totalRounds = Math.min(10, Math.max(1, parseInt(totalRounds) || 3));
+    room.state = "playing";
+    startClassementRound(code);
+    callback?.({ success: true });
+  });
+
+  // Each player submits their answer for the current question
+  socket.on("classement:answer", ({ answer }, callback) => {
+    const code = socket.classementRoomCode;
+    const room = classementRooms[code];
+    if (!room || room.phase !== "answering") return callback?.({ success: false });
+    if (room.answers[socket.id] !== undefined)
+      return callback?.({ success: false, error: "Tu as déjà soumis une réponse." });
+
+    const trimmed = (answer || "").trim().slice(0, 150);
+    if (!trimmed) return callback?.({ success: false, error: "La réponse ne peut pas être vide." });
+
+    room.answers[socket.id] = trimmed;
+
+    // All players answered → move to ranking
+    if (Object.keys(room.answers).length === room.players.length) {
+      room.phase = "ranking";
+    }
+
+    io.to(code).emit("classement:state", getClassementRoomSummary(room));
+    callback?.({ success: true });
+  });
+
+  // Each player submits their ranking: array of other players' IDs, lowest secretNumber first
+  socket.on("classement:rank", ({ ranking }, callback) => {
+    const code = socket.classementRoomCode;
+    const room = classementRooms[code];
+    if (!room || room.phase !== "ranking") return callback?.({ success: false });
+    if (room.rankings[socket.id] !== undefined)
+      return callback?.({ success: false, error: "Tu as déjà soumis ton classement." });
+
+    const otherIds = room.players.filter((p) => p.id !== socket.id).map((p) => p.id);
+    if (
+      !Array.isArray(ranking) ||
+      ranking.length !== otherIds.length ||
+      !otherIds.every((id) => ranking.includes(id))
+    ) return callback?.({ success: false, error: "Classement invalide." });
+
+    room.rankings[socket.id] = ranking;
+
+    // All players ranked → score and reveal
+    if (Object.keys(room.rankings).length === room.players.length) {
+      room.players.forEach((p) => {
+        // Expected order for this player = correctOrder minus themselves
+        const expected = room.correctOrder.filter((id) => id !== p.id);
+        const submitted = room.rankings[p.id];
+        let pts = 0;
+        expected.forEach((id, i) => { if (submitted[i] === id) pts += 1; });
+        room.roundScores[p.id] = pts;
+        p.score += pts;
+      });
+      room.phase = "round_results";
+    }
+
+    io.to(code).emit("classement:state", getClassementRoomSummary(room));
+    callback?.({ success: true });
+  });
+
+  socket.on("classement:next_round", (_, callback) => {
+    const code = socket.classementRoomCode;
+    const room = classementRooms[code];
+    if (!room || room.phase !== "round_results") return;
+    if (!room.players.find((p) => p.id === socket.id)?.isHost) return;
+
+    if (room.currentRound >= room.totalRounds) {
+      room.state = "gameover";
+      room.phase = null;
+      io.to(code).emit("classement:state", getClassementRoomSummary(room));
+    } else {
+      startClassementRound(code);
+    }
+    callback?.({ success: true });
+  });
+
   // Disconnect
   socket.on("disconnect", () => {
     const noteCode = socket.noteRoomCode;
@@ -528,6 +730,38 @@ io.on("connection", (socket) => {
           } else {
             io.to(noteCode).emit("note:state", getNoteRoomSummary(nroom));
           }
+        }
+      }
+    }
+
+    const classementCode = socket.classementRoomCode;
+    if (classementCode && classementRooms[classementCode]) {
+      const croom = classementRooms[classementCode];
+      const cidx = croom.players.findIndex((p) => p.id === socket.id);
+      if (cidx !== -1) {
+        const wasHost = croom.players[cidx].isHost;
+        croom.players.splice(cidx, 1);
+        if (croom.players.length === 0) {
+          delete classementRooms[classementCode];
+        } else {
+          if (wasHost) croom.players[0].isHost = true;
+          if (croom.state === "playing") {
+            // If everyone answered/ranked already, recalculate thresholds
+            const allAnswered = croom.players.every((p) => croom.answers[p.id] !== undefined);
+            const allRanked = croom.players.every((p) => croom.rankings[p.id] !== undefined);
+            if (croom.phase === "answering" && allAnswered) croom.phase = "ranking";
+            if (croom.phase === "ranking" && allRanked) {
+              croom.players.forEach((p) => {
+                const expected = croom.correctOrder.filter((id) => id !== p.id && croom.players.find((pl) => pl.id === id));
+                const submitted = (croom.rankings[p.id] || []).filter((id) => croom.players.find((pl) => pl.id === id));
+                let pts = 0;
+                expected.forEach((id, i) => { if (submitted[i] === id) pts += 1; });
+                if (!croom.roundScores[p.id]) { croom.roundScores[p.id] = pts; p.score += pts; }
+              });
+              croom.phase = "round_results";
+            }
+          }
+          io.to(classementCode).emit("classement:state", getClassementRoomSummary(croom));
         }
       }
     }
