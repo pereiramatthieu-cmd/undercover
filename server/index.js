@@ -669,11 +669,11 @@ io.on("connection", (socket) => {
     if (room.rankings[socket.id] !== undefined)
       return callback?.({ success: false, error: "Tu as déjà soumis ton classement." });
 
-    const otherIds = room.players.filter((p) => p.id !== socket.id).map((p) => p.id);
+    const allIds = room.players.map((p) => p.id);
     if (
       !Array.isArray(ranking) ||
-      ranking.length !== otherIds.length ||
-      !otherIds.every((id) => ranking.includes(id))
+      ranking.length !== allIds.length ||
+      !allIds.every((id) => ranking.includes(id))
     ) return callback?.({ success: false, error: "Classement invalide." });
 
     room.rankings[socket.id] = ranking;
@@ -682,7 +682,7 @@ io.on("connection", (socket) => {
     if (Object.keys(room.rankings).length === room.players.length) {
       room.players.forEach((p) => {
         // Expected order for this player = correctOrder minus themselves
-        const expected = room.correctOrder.filter((id) => id !== p.id);
+        const expected = room.correctOrder;
         const submitted = room.rankings[p.id];
         let pts = 0;
         expected.forEach((id, i) => { if (submitted[i] === id) pts += 1; });
@@ -752,7 +752,7 @@ io.on("connection", (socket) => {
             if (croom.phase === "answering" && allAnswered) croom.phase = "ranking";
             if (croom.phase === "ranking" && allRanked) {
               croom.players.forEach((p) => {
-                const expected = croom.correctOrder.filter((id) => id !== p.id && croom.players.find((pl) => pl.id === id));
+                const expected = croom.correctOrder.filter((id) => croom.players.find((pl) => pl.id === id));
                 const submitted = (croom.rankings[p.id] || []).filter((id) => croom.players.find((pl) => pl.id === id));
                 let pts = 0;
                 expected.forEach((id, i) => { if (submitted[i] === id) pts += 1; });

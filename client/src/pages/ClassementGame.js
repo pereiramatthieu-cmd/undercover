@@ -39,7 +39,7 @@ export default function ClassementGame({ classementState, myId, secretNumber }) 
     if (phase === "ranking" && !rankingInitRef.current) {
       rankingInitRef.current = true;
       const players = classementState?.players || [];
-      setRanking(players.filter((p) => p.id !== myId));
+      setRanking(players);
     }
   }, [phase, classementState?.players, myId]);
 
@@ -113,8 +113,13 @@ export default function ClassementGame({ classementState, myId, secretNumber }) 
             color: "var(--text)",
             lineHeight: 1.25,
           }}>
-            {classementState.currentQuestion}
+            {classementState.currentQuestion?.question ?? classementState.currentQuestion}
           </p>
+          {classementState.currentQuestion?.echelle && (
+            <p style={{ fontSize: "0.82rem", color: "var(--accent)", fontStyle: "italic", marginTop: 2 }}>
+              {classementState.currentQuestion.echelle}
+            </p>
+          )}
         </div>
 
         {/* Secret number */}
@@ -181,19 +186,6 @@ export default function ClassementGame({ classementState, myId, secretNumber }) 
         {/* ── Phase ranking ── */}
         {phase === "ranking" && (
           <>
-            {/* Own answer for context (read-only) */}
-            {answers[myId] && (
-              <div style={{
-                background: "var(--surface)",
-                border: "1px solid var(--border)",
-                borderRadius: "var(--radius)",
-                padding: "12px 16px",
-              }}>
-                <p className="section-label" style={{ marginBottom: 4 }}>Ta réponse</p>
-                <p style={{ fontWeight: 600 }}>« {answers[myId]} »</p>
-              </div>
-            )}
-
             {rankingSubmitted ? (
               <div className="card text-center gap-8">
                 <p style={{ color: "var(--accent)", fontWeight: 600 }}>✓ Classement envoyé !</p>
@@ -204,7 +196,7 @@ export default function ClassementGame({ classementState, myId, secretNumber }) 
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-                  <p className="section-label">Classe les autres joueurs</p>
+                  <p className="section-label">Classe tous les joueurs (toi inclus)</p>
                   <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", textAlign: "right", lineHeight: 1.4 }}>
                     ← plus petit<br />plus grand →
                   </p>
@@ -260,7 +252,14 @@ export default function ClassementGame({ classementState, myId, secretNumber }) 
 
                       {/* Name + answer */}
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>{p.name}</div>
+                        <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>
+                          {p.name}
+                          {p.id === myId && (
+                            <span style={{ fontSize: "0.75rem", color: "var(--accent)", marginLeft: 6, fontWeight: 600 }}>
+                              (toi)
+                            </span>
+                          )}
+                        </div>
                         {answers[p.id] && (
                           <div style={{
                             color: "var(--text-muted)",
