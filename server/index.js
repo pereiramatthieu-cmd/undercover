@@ -26,13 +26,18 @@ function generateRoomCode() {
   return code;
 }
 
-function getRandomWordPair() {
-  return wordPairs[Math.floor(Math.random() * wordPairs.length)];
+function getRandomWordPair(category) {
+  const pool =
+    !category || category === "random"
+      ? Object.values(wordPairs).flat()
+      : wordPairs[category] || Object.values(wordPairs).flat();
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 function getRoomSummary(room) {
   return {
     code: room.code,
+    category: room.category || "random",
     players: room.players.map((p) => ({
       id: p.id,
       name: p.name,
@@ -118,6 +123,7 @@ io.on("connection", (socket) => {
       code,
       players: [{ id: socket.id, name: playerName, isHost: true }],
       state: "lobby",
+      category: "random",
       wordPair: null,
       currentTurn: null,
       round: 1,
@@ -159,7 +165,7 @@ io.on("connection", (socket) => {
     if (!room.players.find((p) => p.id === socket.id)?.isHost) return callback?.({ success: false, error: "Seul l'hôte peut lancer." });
     if (room.players.length < 3) return callback?.({ success: false, error: "Il faut au moins 3 joueurs." });
 
-    const pair = getRandomWordPair();
+    const pair = getRandomWordPair(room.category);
     room.wordPair = pair;
     room.state = "playing";
     room.round = 1;
@@ -184,6 +190,17 @@ io.on("connection", (socket) => {
 
     io.to(code).emit("game:state", getRoomSummary(room));
     startTurnTimer(code);
+    callback?.({ success: true });
+  });
+
+  // Set category
+  socket.on("room:set_category", ({ category }, callback) => {
+    const code = socket.roomCode;
+    const room = rooms[code];
+    if (!room || room.state !== "lobby") return callback?.({ success: false });
+    if (!room.players.find((p) => p.id === socket.id)?.isHost) return callback?.({ success: false });
+    room.category = category;
+    io.to(code).emit("game:state", getRoomSummary(room));
     callback?.({ success: true });
   });
 

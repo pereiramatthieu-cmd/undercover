@@ -1,6 +1,20 @@
 import React, { useState } from "react";
 import socket from "../socket";
 
+const CATEGORIES = {
+  random: "Aleatoire (toutes categories)",
+  manga: "Manga / Anime",
+  cinema: "Cinema",
+  geographie: "Geographie",
+  personnalites: "Personnalites",
+  histoire: "Histoire",
+  jeuxvideo: "Jeux video",
+  gastronomie: "Gastronomie",
+  musique: "Musique",
+  sport: "Sport",
+  science: "Science",
+};
+
 export default function Lobby({ gameState, roomCode, playerName, myId }) {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
@@ -49,6 +63,27 @@ export default function Lobby({ gameState, roomCode, playerName, myId }) {
           <p className="text-muted mt-8" style={{ fontSize: "0.82rem" }}>
             Partage ce code à tes amis pour qu'ils rejoignent
           </p>
+        </div>
+
+        {/* Category */}
+        <div className="card gap-8">
+          <p className="section-label">Categorie</p>
+          {isHost ? (
+            <select
+              className="input"
+              value={gameState.category || "random"}
+              onChange={(e) => socket.emit("room:set_category", { category: e.target.value })}
+              style={{ cursor: "pointer" }}
+            >
+              {Object.entries(CATEGORIES).map(([key, label]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+            </select>
+          ) : (
+            <p style={{ fontWeight: 600, color: "var(--text)" }}>
+              {CATEGORIES[gameState.category || "random"]}
+            </p>
+          )}
         </div>
 
         {/* Players */}
