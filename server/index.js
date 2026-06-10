@@ -18,6 +18,7 @@ const io = new Server(server, {
 
 // rooms[roomCode] = { players, state, wordPair, currentTurn, round, hints, votes }
 const rooms = {};
+const noteRooms = {};
 
 function generateRoomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -109,6 +110,56 @@ function startTurnTimer(roomCode) {
     }
     advanceTurn(roomCode);
   }, 47000); // 45s + 2s buffer
+}
+
+// ─── La Note helpers ───
+
+function getNoteRoomSummary(room) {
+  return {
+    code: room.code,
+    players: room.players.map((p) => ({
+      id: p.id,
+      name: p.name,
+      isHost: p.isHost,
+      score: p.score,
+    })),
+    state: room.state,
+    phase: room.phase,
+    currentRound: room.currentRound,
+    totalRounds: room.totalRounds,
+    maitre: room.maitre,
+    questions: room.questions,
+    currentTour: room.currentTour,
+    currentAskerIndex: room.currentAskerIndex,
+    askers: room.askers,
+    awaitingAnswer: room.awaitingAnswer,
+    guessCount: Object.keys(room.guesses).length,
+    totalGuessers: room.askers ? room.askers.length : 0,
+    guesses: room.phase === "round_results" ? room.guesses : {},
+    secretNote: room.phase === "round_results" ? room.secretNote : null,
+    roundWinners: room.roundWinners || [],
+  };
+}
+
+function startNoteRound(code) {
+  const room = noteRooms[code];
+  if (!room) return;
+
+  room.currentRound += 1;
+  const maitreIndex = Math.floor(Math.random() * room.players.length);
+  room.maitre = room.players[maitreIndex].id;
+  room.secretNote = Math.floor(Math.random() * 10) + 1;
+  room.askers = room.players.filter((p) => p.id !== room.maitre).map((p) => p.id);
+  room.currentAskerIndex = 0;
+  room.currentTour = 1;
+  room.awaitingAnswer = false;
+  room.questions = [];
+  room.guesses = {};
+  room.roundWinners = [];
+  room.phase = "questions";
+
+  io.to(room.maitre).emit("note:secret", { note: room.secretNote });
+  io.to(code).emit("note:state", getNoteRoomSummary(room));
 }
 
 io.on("connection", (socket) => {
@@ -293,8 +344,194 @@ io.on("connection", (socket) => {
     callback?.({ success: true });
   });
 
+  // ─── La Note events ───
+
+  socket.on("note:create", ({ playerName }, callback) => {
+    let code;
+    do { code = generateRoomCode(); } while (noteRooms[code]);
+
+    noteRooms[code] = {
+      code,
+      players: [{ id: socket.id, name: playerName, isHost: true, score: 0 }],
+      state: "lobby",
+      phase: null,
+      totalRounds: null,
+      currentRound: 0,
+      maitre: null,
+      secretNote: null,
+      askers: [],
+      currentAskerIndex: 0,
+      currentTour: 1,
+      awaitingAnswer: false,
+      questions: [],
+      guesses: {},
+      roundWinners: [],
+    };
+
+    socket.join(code);
+    socket.noteRoomCode = code;
+    callback({ success: true, code });
+    io.to(code).emit("note:state", getNoteRoomSummary(noteRooms[code]));
+  });
+
+  socket.on("note:join", ({ playerName, code }, callback) => {
+    const room = noteRooms[code];
+    if (!room) return callback({ success: false, error: "Room introuvable." });
+    if (room.state !== "lobby") return callback({ success: false, error: "La partie a déjà commencé." });
+    if (room.players.length >= 8) return callback({ success: false, error: "La room est pleine (8 joueurs max)." });
+    if (room.players.find((p) => p.name.toLowerCase() === playerName.toLowerCase()))
+      return callback({ success: false, error: "Ce pseudo est déjà pris." });
+
+    room.players.push({ id: socket.id, name: playerName, isHost: false, score: 0 });
+    socket.join(code);
+    socket.noteRoomCode = code;
+    callback({ success: true, code });
+    io.to(code).emit("note:state", getNoteRoomSummary(room));
+  });
+
+  socket.on("note:start", ({ totalRounds }, callback) => {
+    const code = socket.noteRoomCode;
+    const room = noteRooms[code];
+    if (!room) return callback?.({ success: false });
+    if (!room.players.find((p) => p.id === socket.id)?.isHost)
+      return callback?.({ success: false, error: "Seul l'hôte peut lancer." });
+    if (room.players.length < 2)
+      return callback?.({ success: false, error: "Il faut au moins 2 joueurs." });
+
+    room.totalRounds = Math.min(10, Math.max(1, parseInt(totalRounds) || 3));
+    room.state = "playing";
+    startNoteRound(code);
+    callback?.({ success: true });
+  });
+
+  socket.on("note:question", ({ question }, callback) => {
+    const code = socket.noteRoomCode;
+    const room = noteRooms[code];
+    if (!room || room.phase !== "questions") return callback?.({ success: false });
+    if (room.awaitingAnswer)
+      return callback?.({ success: false, error: "En attente de la réponse du Maître." });
+    if (room.askers[room.currentAskerIndex] !== socket.id)
+      return callback?.({ success: false, error: "Ce n'est pas ton tour." });
+
+    const player = room.players.find((p) => p.id === socket.id);
+    const trimmed = question.trim().slice(0, 200);
+    if (!trimmed) return callback?.({ success: false, error: "La question ne peut pas être vide." });
+
+    room.questions.push({
+      playerId: socket.id,
+      playerName: player.name,
+      question: trimmed,
+      answer: null,
+      tour: room.currentTour,
+    });
+    room.awaitingAnswer = true;
+
+    io.to(code).emit("note:state", getNoteRoomSummary(room));
+    callback?.({ success: true });
+  });
+
+  socket.on("note:answer", ({ answer }, callback) => {
+    const code = socket.noteRoomCode;
+    const room = noteRooms[code];
+    if (!room || room.phase !== "questions") return callback?.({ success: false });
+    if (room.maitre !== socket.id)
+      return callback?.({ success: false, error: "Seul le Maître peut répondre." });
+    if (!room.awaitingAnswer) return callback?.({ success: false });
+
+    const trimmed = answer.trim().slice(0, 200);
+    if (!trimmed) return callback?.({ success: false, error: "La réponse ne peut pas être vide." });
+
+    room.questions[room.questions.length - 1].answer = trimmed;
+    room.awaitingAnswer = false;
+    room.currentAskerIndex += 1;
+
+    if (room.currentAskerIndex >= room.askers.length) {
+      if (room.currentTour === 1) {
+        room.currentTour = 2;
+        room.currentAskerIndex = 0;
+      } else {
+        room.phase = "guessing";
+      }
+    }
+
+    io.to(code).emit("note:state", getNoteRoomSummary(room));
+    callback?.({ success: true });
+  });
+
+  socket.on("note:guess", ({ guess }, callback) => {
+    const code = socket.noteRoomCode;
+    const room = noteRooms[code];
+    if (!room || room.phase !== "guessing") return callback?.({ success: false });
+    if (socket.id === room.maitre)
+      return callback?.({ success: false, error: "Le Maître ne peut pas deviner." });
+    if (room.guesses[socket.id] !== undefined)
+      return callback?.({ success: false, error: "Tu as déjà proposé une note." });
+
+    const val = parseInt(guess);
+    if (isNaN(val) || val < 1 || val > 10)
+      return callback?.({ success: false, error: "La note doit être entre 1 et 10." });
+
+    room.guesses[socket.id] = val;
+
+    if (Object.keys(room.guesses).length === room.askers.length) {
+      const secret = room.secretNote;
+      let minDiff = Infinity;
+      room.askers.forEach((id) => {
+        const diff = Math.abs(room.guesses[id] - secret);
+        if (diff < minDiff) minDiff = diff;
+      });
+      room.roundWinners = room.askers.filter(
+        (id) => Math.abs(room.guesses[id] - secret) === minDiff
+      );
+      room.roundWinners.forEach((id) => {
+        const p = room.players.find((pl) => pl.id === id);
+        if (p) p.score += 1;
+      });
+      room.phase = "round_results";
+    }
+
+    io.to(code).emit("note:state", getNoteRoomSummary(room));
+    callback?.({ success: true });
+  });
+
+  socket.on("note:next_round", (_, callback) => {
+    const code = socket.noteRoomCode;
+    const room = noteRooms[code];
+    if (!room || room.phase !== "round_results") return;
+    if (!room.players.find((p) => p.id === socket.id)?.isHost) return;
+
+    if (room.currentRound >= room.totalRounds) {
+      room.state = "gameover";
+      room.phase = null;
+      io.to(code).emit("note:state", getNoteRoomSummary(room));
+    } else {
+      startNoteRound(code);
+    }
+    callback?.({ success: true });
+  });
+
   // Disconnect
   socket.on("disconnect", () => {
+    const noteCode = socket.noteRoomCode;
+    if (noteCode && noteRooms[noteCode]) {
+      const nroom = noteRooms[noteCode];
+      const nidx = nroom.players.findIndex((p) => p.id === socket.id);
+      if (nidx !== -1) {
+        const wasNoteHost = nroom.players[nidx].isHost;
+        nroom.players.splice(nidx, 1);
+        if (nroom.players.length === 0) {
+          delete noteRooms[noteCode];
+        } else {
+          if (wasNoteHost) nroom.players[0].isHost = true;
+          if (nroom.state === "playing" && nroom.maitre === socket.id) {
+            startNoteRound(noteCode);
+          } else {
+            io.to(noteCode).emit("note:state", getNoteRoomSummary(nroom));
+          }
+        }
+      }
+    }
+
     const code = socket.roomCode;
     if (!code || !rooms[code]) return;
     const room = rooms[code];

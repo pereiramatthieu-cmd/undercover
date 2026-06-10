@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from "react";
 import socket from "./socket";
+import GameSelect from "./pages/GameSelect";
+import NoteLobby from "./pages/NoteLobby";
+import NoteGame from "./pages/NoteGame";
+import NoteResults from "./pages/NoteResults";
 import Home from "./pages/Home";
 import Lobby from "./pages/Lobby";
 import Game from "./pages/Game";
@@ -7,13 +11,16 @@ import Results from "./pages/Results";
 import "./App.css";
 
 export default function App() {
-  const [page, setPage] = useState("home");
+  const [page, setPage] = useState("gameSelect");
+  const [gameType, setGameType] = useState(null);
   const [roomCode, setRoomCode] = useState(null);
   const [playerName, setPlayerName] = useState("");
   const [gameState, setGameState] = useState(null);
   const [myWord, setMyWord] = useState(null);
   const [myRole, setMyRole] = useState(null);
   const [results, setResults] = useState(null);
+  const [noteState, setNoteState] = useState(null);
+  const [noteSecretNote, setNoteSecretNote] = useState(null);
 
   useEffect(() => {
     socket.connect();
@@ -36,17 +43,37 @@ export default function App() {
       setResults(data);
     });
 
+    socket.on("note:state", (state) => {
+      setNoteState(state);
+      if (state.state === "lobby") setPage("noteLobby");
+      else if (state.state === "playing" && state.phase === "round_results") setPage("noteResults");
+      else if (state.state === "playing") setPage("noteGame");
+      else if (state.state === "gameover") setPage("noteResults");
+    });
+
+    socket.on("note:secret", ({ note }) => {
+      setNoteSecretNote(note);
+    });
+
     return () => {
       socket.off("game:state");
       socket.off("game:word");
       socket.off("game:results");
+      socket.off("note:state");
+      socket.off("note:secret");
     };
   }, []);
+
+  const handleSelectGame = (id) => {
+    setGameType(id);
+    setPage("home");
+  };
 
   const handleJoin = (code, name) => {
     setRoomCode(code);
     setPlayerName(name);
-    setPage("lobby");
+    if (gameType !== "lanote") setPage("lobby");
+    else setNoteSecretNote(null);
   };
 
   const handleRestart = () => {
@@ -57,7 +84,8 @@ export default function App() {
 
   return (
     <div className="app">
-      {page === "home" && <Home onJoin={handleJoin} />}
+      {page === "gameSelect" && <GameSelect onSelectGame={handleSelectGame} />}
+      {page === "home" && <Home onJoin={handleJoin} gameType={gameType} />}
       {page === "lobby" && (
         <Lobby
           gameState={gameState}
@@ -82,6 +110,15 @@ export default function App() {
           myId={socket.id}
           onRestart={handleRestart}
         />
+      )}
+      {page === "noteLobby" && (
+        <NoteLobby noteState={noteState} roomCode={roomCode} playerName={playerName} myId={socket.id} />
+      )}
+      {page === "noteGame" && (
+        <NoteGame noteState={noteState} myId={socket.id} secretNote={noteSecretNote} />
+      )}
+      {page === "noteResults" && (
+        <NoteResults noteState={noteState} myId={socket.id} />
       )}
     </div>
   );

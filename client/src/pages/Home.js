@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import socket from "../socket";
 
-export default function Home({ onJoin }) {
+export default function Home({ onJoin, gameType }) {
   const [tab, setTab] = useState("create");
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
@@ -12,7 +12,7 @@ export default function Home({ onJoin }) {
     if (!name.trim()) return setError("Entre ton prénom !");
     setLoading(true);
     setError("");
-    socket.emit("room:create", { playerName: name.trim() }, (res) => {
+    socket.emit(gameType === "lanote" ? "note:create" : "room:create", { playerName: name.trim() }, (res) => {
       setLoading(false);
       if (res.success) {
         onJoin(res.code, name.trim());
@@ -27,7 +27,7 @@ export default function Home({ onJoin }) {
     if (!code.trim()) return setError("Entre le code de la room !");
     setLoading(true);
     setError("");
-    socket.emit("room:join", { playerName: name.trim(), code: code.trim().toUpperCase() }, (res) => {
+    socket.emit(gameType === "lanote" ? "note:join" : "room:join", { playerName: name.trim(), code: code.trim().toUpperCase() }, (res) => {
       setLoading(false);
       if (res.success) {
         onJoin(res.code, name.trim());
@@ -42,8 +42,17 @@ export default function Home({ onJoin }) {
       <div className="page-inner gap-24 fade-in">
         {/* Logo */}
         <div className="text-center">
-          <div className="logo">under<span>cover</span></div>
-          <p className="text-muted mt-8">Le jeu du mot caché</p>
+          {gameType === "lanote" ? (
+            <>
+              <div className="logo">la <span>note</span></div>
+              <p className="text-muted mt-8">Le jeu des notes secrètes</p>
+            </>
+          ) : (
+            <>
+              <div className="logo">under<span>cover</span></div>
+              <p className="text-muted mt-8">Le jeu du mot caché</p>
+            </>
+          )}
         </div>
 
         {/* Card */}
