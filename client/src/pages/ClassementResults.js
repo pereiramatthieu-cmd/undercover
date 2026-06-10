@@ -19,15 +19,17 @@ export default function ClassementResults({ classementState, myId }) {
 
   const {
     players = [],
-    correctOrder = [],
-    answers = {},
-    roundScores = {},
     currentRound,
     totalRounds,
     theme,
     currentQuestion,
     state,
   } = classementState;
+
+  // Use || [] / || {} so null values (sent by server in non-reveal phases) don't crash .map()
+  const correctOrder = classementState.correctOrder || [];
+  const answers = classementState.answers || {};
+  const roundScores = classementState.roundScores || {};
 
   const isHost = players.find((p) => p.id === myId)?.isHost;
   const isLastRound = currentRound >= totalRounds;
@@ -59,7 +61,9 @@ export default function ClassementResults({ classementState, myId }) {
             {isGameOver || isLastRound ? "Partie terminée !" : "Résultats de la manche"}
           </h2>
           <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>
-            Question : <em style={{ color: "var(--text)" }}>{currentQuestion}</em>
+            Question : <em style={{ color: "var(--text)" }}>
+              {currentQuestion?.question ?? currentQuestion ?? "—"}
+            </em>
           </p>
         </div>
 

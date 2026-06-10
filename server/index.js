@@ -167,7 +167,7 @@ function startNoteRound(code) {
 // ─── Le Classement helpers ───
 
 function getClassementRoomSummary(room) {
-  const reveal = room.phase === "round_results";
+  const reveal = room.phase === "round_results" || room.state === "gameover";
   return {
     code: room.code,
     players: room.players.map((p) => ({
