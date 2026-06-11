@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import socket from "../socket";
 
-export default function Home({ onJoin, gameType }) {
+export default function Home({ onJoin, gameType, onGoHome }) {
   const [tab, setTab] = useState("create");
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
@@ -40,7 +40,14 @@ export default function Home({ onJoin, gameType }) {
   };
 
   return (
-    <div className="page">
+    <div className="page" style={{ position: "relative" }}>
+      <button
+        className="btn btn-ghost"
+        onClick={onGoHome}
+        style={{ position: "absolute", top: 16, left: 16, fontSize: "0.82rem", padding: "6px 12px" }}
+      >
+        ← Menu
+      </button>
       <div className="page-inner gap-24 fade-in">
         {/* Logo */}
         <div className="text-center">

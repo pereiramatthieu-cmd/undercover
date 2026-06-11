@@ -106,16 +106,34 @@ export default function App() {
     setResults(null);
   };
 
+  const handleGoHome = () => {
+    setPage("gameSelect");
+    setGameType(null);
+    setRoomCode(null);
+    setPlayerName("");
+    setGameState(null);
+    setMyWord(null);
+    setMyRole(null);
+    setResults(null);
+    setNoteState(null);
+    setNoteSecretNote(null);
+    setClassementState(null);
+    setClassementSecretNumber(null);
+    if (socket.connected) socket.disconnect();
+    setTimeout(() => socket.connect(), 300);
+  };
+
   return (
     <div className="app">
       {page === "gameSelect" && <GameSelect onSelectGame={handleSelectGame} />}
-      {page === "home" && <Home onJoin={handleJoin} gameType={gameType} />}
+      {page === "home" && <Home onJoin={handleJoin} gameType={gameType} onGoHome={handleGoHome} />}
       {page === "lobby" && (
         <Lobby
           gameState={gameState}
           roomCode={roomCode}
           playerName={playerName}
           myId={socket.id}
+          onGoHome={handleGoHome}
         />
       )}
       {page === "game" && (
@@ -125,6 +143,7 @@ export default function App() {
           myRole={myRole}
           myId={socket.id}
           playerName={playerName}
+          onGoHome={handleGoHome}
         />
       )}
       {page === "results" && (
@@ -133,6 +152,7 @@ export default function App() {
           results={results}
           myId={socket.id}
           onRestart={handleRestart}
+          onGoHome={handleGoHome}
         />
       )}
       {page === "noteLobby" && (

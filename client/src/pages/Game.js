@@ -10,7 +10,7 @@ function TimerBar({ seconds, total = 20 }) {
   );
 }
 
-export default function Game({ gameState, myWord, myRole, myId, playerName }) {
+export default function Game({ gameState, myWord, myRole, myId, playerName, onGoHome }) {
   const [hint, setHint] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [timeLeft, setTimeLeft] = useState(45);
@@ -75,7 +75,14 @@ export default function Game({ gameState, myWord, myRole, myId, playerName }) {
   // ── VOTING PHASE ──
   if (isVoting) {
     return (
-      <div className="page">
+      <div className="page" style={{ position: "relative" }}>
+        <button
+          className="btn btn-ghost"
+          onClick={onGoHome}
+          style={{ position: "absolute", top: 16, left: 16, fontSize: "0.82rem", padding: "6px 12px" }}
+        >
+          ← Menu
+        </button>
         <div className="page-inner gap-24 fade-in">
           <div className="text-center gap-8">
             <span className="badge badge-accent">Phase de vote</span>
@@ -139,7 +146,14 @@ export default function Game({ gameState, myWord, myRole, myId, playerName }) {
 
   // ── PLAYING PHASE ──
   return (
-    <div className="page">
+    <div className="page" style={{ position: "relative" }}>
+      <button
+        className="btn btn-ghost"
+        onClick={onGoHome}
+        style={{ position: "absolute", top: 16, left: 16, fontSize: "0.82rem", padding: "6px 12px" }}
+      >
+        ← Menu
+      </button>
       <div className="page-inner gap-16 fade-in">
         {/* Round + word */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>

@@ -1,7 +1,7 @@
 import React from "react";
 import socket from "../socket";
 
-export default function Results({ gameState, results, myId, onRestart }) {
+export default function Results({ gameState, results, myId, onRestart, onGoHome }) {
   if (!results || !gameState) {
     return (
       <div className="page">
@@ -21,7 +21,14 @@ export default function Results({ gameState, results, myId, onRestart }) {
   };
 
   return (
-    <div className="page">
+    <div className="page" style={{ position: "relative" }}>
+      <button
+        className="btn btn-ghost"
+        onClick={onGoHome}
+        style={{ position: "absolute", top: 16, left: 16, fontSize: "0.82rem", padding: "6px 12px" }}
+      >
+        ← Menu
+      </button>
       <div className="page-inner gap-24 fade-in">
         {/* Winner */}
         <div className="text-center gap-8">
