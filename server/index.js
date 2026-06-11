@@ -66,7 +66,22 @@ function getNextTurnIndex(room) {
 
 function advanceTurn(roomCode) {
   const room = rooms[roomCode];
-  if (!room) return;
+  if (!room || room.players.length === 0) return;
+
+  // Si moins de 3 joueurs restants, on abandonne la partie
+  if (room.players.length < 3) {
+    room.state = "lobby";
+    room.currentTurn = null;
+    if (room.timer) clearTimeout(room.timer);
+    io.to(roomCode).emit("game:state", getRoomSummary(room));
+    io.to(roomCode).emit("game:aborted", { reason: "Trop peu de joueurs restants." });
+    return;
+  }
+
+  // Si le joueur actuel n'est plus dans la room, on repart du premier
+  if (!room.players.find((p) => p.id === room.currentTurn)) {
+    room.currentTurn = room.players[0].id;
+  }
 
   const nextIndex = getNextTurnIndex(room);
   const firstPlayerId = room.players[0].id;
@@ -74,9 +89,10 @@ function advanceTurn(roomCode) {
   // If we've come back to the first player
   if (room.players[nextIndex].id === firstPlayerId) {
     if (room.round >= 2) {
-      // Both rounds done → go to vote
+      // Both rounds done -> go to vote
       room.state = "voting";
       room.currentTurn = null;
+      if (room.timer) clearTimeout(room.timer);
       io.to(roomCode).emit("game:state", getRoomSummary(room));
     } else {
       // Start round 2
@@ -299,7 +315,12 @@ io.on("connection", (socket) => {
     room.undercoverWord = pair.undercover;
     room.citizenWord = pair.citizens;
 
-    // First player's turn
+    // Mélanger l'ordre des joueurs
+    for (let i = room.players.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [room.players[i], room.players[j]] = [room.players[j], room.players[i]];
+    }
+    // Le premier joueur mélangé commence
     room.currentTurn = room.players[0].id;
 
     // Send each player their word privately
@@ -339,10 +360,12 @@ io.on("connection", (socket) => {
     if (room.hints.find((h) => h.playerId === socket.id && h.round === room.round))
       return callback?.({ success: false });
 
+    // Marquer le tour comme traité pour éviter double appel timer + hint
+    room.currentTurn = null;
+
     room.hints.push({ playerId: socket.id, playerName: player.name, hint: trimmed, round: room.round });
 
-    if (room.timer) clearTimeout(room.timer);
-    io.to(code).emit("game:state", getRoomSummary(room));
+    if (room.timer) { clearTimeout(room.timer); room.timer = null; }
     callback?.({ success: true });
 
     advanceTurn(code);
@@ -356,10 +379,12 @@ io.on("connection", (socket) => {
     if (socket.id === targetId) return callback?.({ success: false, error: "Tu ne peux pas voter pour toi-même." });
 
     room.votes[socket.id] = targetId;
-    io.to(code).emit("game:votes_count", { count: Object.keys(room.votes).length, total: room.players.length });
+    // Ne compter que les votes des joueurs encore présents
+    const activeVotes = Object.keys(room.votes).filter(id => room.players.find(p => p.id === id));
+    io.to(code).emit("game:votes_count", { count: activeVotes.length, total: room.players.length });
 
     // All voted?
-    if (Object.keys(room.votes).length === room.players.length) {
+    if (activeVotes.length === room.players.length) {
       // Tally votes
       const tally = {};
       room.players.forEach((p) => (tally[p.id] = 0));
@@ -796,7 +821,7 @@ io.on("connection", (socket) => {
     }
 
     io.to(code).emit("game:state", getRoomSummary(room));
-    io.to(code).emit("game:player_left", { name: room.players[idx - 1]?.name || "Un joueur" });
+    io.to(code).emit("game:player_left", { name: "Un joueur a quitté la partie" });
   });
 });
 
