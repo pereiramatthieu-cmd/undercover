@@ -360,9 +360,6 @@ io.on("connection", (socket) => {
     if (room.hints.find((h) => h.playerId === socket.id && h.round === room.round))
       return callback?.({ success: false });
 
-    // Marquer le tour comme traité pour éviter double appel timer + hint
-    room.currentTurn = null;
-
     room.hints.push({ playerId: socket.id, playerName: player.name, hint: trimmed, round: room.round });
 
     if (room.timer) { clearTimeout(room.timer); room.timer = null; }
