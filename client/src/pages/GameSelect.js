@@ -111,6 +111,33 @@ function ClassementIllustration() {
   );
 }
 
+function CitationIllustration() {
+  return (
+    <svg viewBox="0 0 110 110" width="110" height="110" aria-hidden="true" fill="none">
+      {/* Main speech bubble */}
+      <rect x="6" y="8" width="82" height="52" rx="12" fill="var(--accent)" fillOpacity="0.13" stroke="var(--accent)" strokeOpacity="0.35" strokeWidth="1.5" />
+      {/* Bubble tail */}
+      <path d="M24 60 L14 78 L38 62" fill="var(--accent)" fillOpacity="0.13" stroke="var(--accent)" strokeOpacity="0.35" strokeWidth="1.5" strokeLinejoin="round" />
+      {/* Quote marks */}
+      <text x="18" y="36" fontSize="32" fontWeight="900" fill="var(--accent)" fillOpacity="0.55" fontFamily="Georgia, serif">"</text>
+      {/* Text lines inside bubble */}
+      <rect x="36" y="22" width="42" height="5" rx="2.5" fill="var(--accent)" fillOpacity="0.3" />
+      <rect x="36" y="32" width="34" height="5" rx="2.5" fill="var(--accent)" fillOpacity="0.22" />
+      <rect x="36" y="42" width="38" height="5" rx="2.5" fill="var(--accent)" fillOpacity="0.18" />
+      {/* Question badge */}
+      <circle cx="88" cy="14" r="16" fill="var(--accent2)" fillOpacity="0.15" stroke="var(--accent2)" strokeOpacity="0.4" strokeWidth="1.5" />
+      <text x="88" y="20" textAnchor="middle" fontSize="18" fontWeight="900" fill="var(--accent2)" fillOpacity="0.85" fontFamily="Syne, sans-serif">?</text>
+      {/* Answer bubbles below */}
+      <rect x="6" y="82" width="46" height="22" rx="6" fill="var(--accent)" fillOpacity="0.1" stroke="var(--accent)" strokeOpacity="0.2" strokeWidth="1" />
+      <rect x="58" y="82" width="46" height="22" rx="6" fill="var(--accent2)" fillOpacity="0.1" stroke="var(--accent2)" strokeOpacity="0.2" strokeWidth="1" />
+      <rect x="12" y="88" width="34" height="4" rx="2" fill="var(--accent)" fillOpacity="0.25" />
+      <rect x="64" y="88" width="34" height="4" rx="2" fill="var(--accent2)" fillOpacity="0.25" />
+      <rect x="18" y="95" width="22" height="3" rx="1.5" fill="var(--accent)" fillOpacity="0.15" />
+      <rect x="70" y="95" width="22" height="3" rx="1.5" fill="var(--accent2)" fillOpacity="0.15" />
+    </svg>
+  );
+}
+
 function QSJIllustration() {
   return (
     <svg viewBox="0 0 100 110" width="100" height="110" aria-hidden="true" fill="none">
@@ -156,6 +183,13 @@ const GAMES = [
     title: "Le Classement",
     description: "Chacun reçoit un numéro secret. Répondez aux questions et classez les autres joueurs du plus petit au plus grand.",
     illustration: <ClassementIllustration />,
+    available: true,
+  },
+  {
+    id: "citation",
+    title: "Citation Mystère",
+    description: "Une citation manga s'affiche. Qui l'a dite ? Réponds vite en phase libre, puis choisissez parmi 4 propositions.",
+    illustration: <CitationIllustration />,
     available: true,
   },
   {

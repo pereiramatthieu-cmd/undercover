@@ -5,6 +5,7 @@ const cors = require("cors");
 const wordPairs = require("./words");
 const classementQuestions = require("./classement_questions");
 const qsjCharacters = require("./qsj_characters");
+const citationData = require("./citation_data");
 
 const app = express();
 app.use(cors());
@@ -23,6 +24,7 @@ const rooms = {};
 const noteRooms = {};
 const classementRooms = {};
 const qsjRooms = {};
+const citationRooms = {};
 
 function generateRoomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -247,6 +249,191 @@ function startClassementRound(code) {
   });
 
   io.to(code).emit("classement:state", getClassementRoomSummary(room));
+}
+
+// ─── Citation Mystère helpers ───
+
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+  );
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+  return dp[m][n];
+}
+
+function normalizeCitation(s) {
+  return s.toLowerCase().trim()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9 ]/g, "")
+    .replace(/\s+/g, " ").trim();
+}
+
+function checkCitationAnswer(guess, citation) {
+  const normGuess = normalizeCitation(guess);
+  const targets = [citation.character, ...(citation.aliases || [])].map(normalizeCitation);
+
+  for (const target of targets) {
+    if (normGuess === target) return true;
+    const words = target.split(" ").filter((w) => w.length >= 3);
+    if (words.some((w) => normGuess === w)) return true;
+    if (normGuess.length >= 4 && levenshtein(normGuess, target) <= 2) return true;
+    if (words.some((w) => w.length >= 5 && levenshtein(normGuess, w) <= 1)) return true;
+  }
+  return false;
+}
+
+function generateCitationOptions(citation) {
+  const correct = { character: citation.character, manga: citation.manga };
+  const seenChars = new Set([citation.character]);
+  const wrongPool = [];
+  citationData.forEach((c) => {
+    if (!seenChars.has(c.character)) {
+      seenChars.add(c.character);
+      wrongPool.push({ character: c.character, manga: c.manga });
+    }
+  });
+  for (let i = wrongPool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [wrongPool[i], wrongPool[j]] = [wrongPool[j], wrongPool[i]];
+  }
+  const options = [...wrongPool.slice(0, 3), correct];
+  for (let i = options.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [options[i], options[j]] = [options[j], options[i]];
+  }
+  const correctIndex = options.findIndex((o) => o.character === correct.character);
+  return { options, correctIndex };
+}
+
+function getCitationRoomSummary(room) {
+  const isReveal = room.phase === "reveal" || room.state === "gameover";
+  const citation = room.currentCitation;
+  return {
+    code: room.code,
+    players: room.players.map((p) => ({
+      id: p.id,
+      name: p.name,
+      isHost: p.isHost,
+      score: p.score,
+    })),
+    state: room.state,
+    phase: room.phase,
+    category: room.category,
+    totalRounds: room.totalRounds,
+    currentRound: room.currentRound,
+    currentCitation: citation ? {
+      quote: citation.quote,
+      character: isReveal ? citation.character : null,
+      manga: isReveal ? citation.manga : null,
+      category: citation.category,
+    } : null,
+    options: room.options,
+    correctOptionIndex: isReveal ? room.correctOptionIndex : null,
+    answeredPlayerIds: Object.keys(room.answers),
+    answers: isReveal ? room.answers : {},
+    answerCount: Object.keys(room.answers).length,
+    totalPlayers: room.players.length,
+    phase1StartTime: room.phase1StartTime,
+    phase2StartTime: room.phase2StartTime,
+    roundScores: isReveal ? room.roundScores : {},
+  };
+}
+
+function startCitationRound(code) {
+  const room = citationRooms[code];
+  if (!room) return;
+
+  if (room.phaseTimer) { clearTimeout(room.phaseTimer); room.phaseTimer = null; }
+
+  room.currentRound += 1;
+
+  let pool = citationData.filter((c) =>
+    (room.category === "aleatoire" || c.category === room.category) &&
+    !room.usedCitationIds.includes(c.id)
+  );
+  if (pool.length === 0) {
+    room.usedCitationIds = [];
+    pool = citationData.filter((c) =>
+      room.category === "aleatoire" || c.category === room.category
+    );
+  }
+  const citation = pool[Math.floor(Math.random() * pool.length)];
+  room.usedCitationIds.push(citation.id);
+  room.currentCitation = citation;
+
+  const { options, correctIndex } = generateCitationOptions(citation);
+  room.options = options;
+  room.correctOptionIndex = correctIndex;
+
+  room.answers = {};
+  room.roundScores = {};
+  room.phase = "phase1";
+  room.phase1StartTime = Date.now();
+  room.phase2StartTime = null;
+
+  room.phaseTimer = setTimeout(() => startCitationPhase2(code), 15000);
+  io.to(code).emit("citation:state", getCitationRoomSummary(room));
+}
+
+function startCitationPhase2(code) {
+  const room = citationRooms[code];
+  if (!room || room.state !== "playing") return;
+
+  if (room.phaseTimer) { clearTimeout(room.phaseTimer); room.phaseTimer = null; }
+
+  room.phase = "phase2";
+  room.phase2StartTime = Date.now();
+
+  room.phaseTimer = setTimeout(() => revealCitationRound(code), 15000);
+  io.to(code).emit("citation:state", getCitationRoomSummary(room));
+}
+
+function revealCitationRound(code) {
+  const room = citationRooms[code];
+  if (!room || room.state !== "playing") return;
+
+  if (room.phaseTimer) { clearTimeout(room.phaseTimer); room.phaseTimer = null; }
+
+  room.players.forEach((p) => {
+    const ans = room.answers[p.id];
+    let pts = 0;
+    if (ans) {
+      let correct = false;
+      if (ans.phase === "phase1") {
+        correct = checkCitationAnswer(ans.answer, room.currentCitation);
+        if (correct) {
+          const elapsed = Math.min(ans.timestamp - room.phase1StartTime, 15000);
+          pts = Math.round(1000 - (elapsed / 15000) * 400);
+        } else {
+          pts = -100;
+        }
+      } else {
+        correct = ans.choiceIndex === room.correctOptionIndex;
+        if (correct) {
+          const elapsed = Math.min(ans.timestamp - room.phase2StartTime, 15000);
+          pts = Math.round(400 - (elapsed / 15000) * 200);
+        } else {
+          pts = -100;
+        }
+      }
+      room.answers[p.id].correct = correct;
+      room.answers[p.id].points = pts;
+    } else {
+      room.answers[p.id] = { answer: null, choiceIndex: null, phase: null, timestamp: null, correct: false, points: 0 };
+    }
+    room.roundScores[p.id] = pts;
+    p.score += pts;
+  });
+
+  room.phase = "reveal";
+  io.to(code).emit("citation:state", getCitationRoomSummary(room));
 }
 
 // ─── Qui suis-je helpers ───
@@ -1034,7 +1221,196 @@ io.on("connection", (socket) => {
   });
 
   // Disconnect
+  // ─── Citation Mystère events ───
+
+  socket.on("citation:create", ({ playerName }, callback) => {
+    let code;
+    do { code = generateRoomCode(); } while (citationRooms[code]);
+
+    citationRooms[code] = {
+      code,
+      players: [{ id: socket.id, name: playerName, isHost: true, score: 0 }],
+      state: "lobby",
+      phase: null,
+      category: "aleatoire",
+      totalRounds: 10,
+      currentRound: 0,
+      currentCitation: null,
+      options: [],
+      correctOptionIndex: null,
+      answers: {},
+      roundScores: {},
+      phase1StartTime: null,
+      phase2StartTime: null,
+      phaseTimer: null,
+      usedCitationIds: [],
+    };
+
+    socket.join(code);
+    socket.citationRoomCode = code;
+    callback({ success: true, code });
+    io.to(code).emit("citation:state", getCitationRoomSummary(citationRooms[code]));
+  });
+
+  socket.on("citation:join", ({ playerName, code }, callback) => {
+    const room = citationRooms[code];
+    if (!room) return callback({ success: false, error: "Room introuvable." });
+    if (room.state !== "lobby") return callback({ success: false, error: "La partie a déjà commencé." });
+    if (room.players.length >= 8) return callback({ success: false, error: "La room est pleine (8 joueurs max)." });
+    if (room.players.find((p) => p.name.toLowerCase() === playerName.toLowerCase()))
+      return callback({ success: false, error: "Ce pseudo est déjà pris." });
+
+    room.players.push({ id: socket.id, name: playerName, isHost: false, score: 0 });
+    socket.join(code);
+    socket.citationRoomCode = code;
+    callback({ success: true, code });
+    io.to(code).emit("citation:state", getCitationRoomSummary(room));
+  });
+
+  socket.on("citation:start", ({ category, totalRounds }, callback) => {
+    const code = socket.citationRoomCode;
+    const room = citationRooms[code];
+    if (!room) return callback?.({ success: false });
+    if (!room.players.find((p) => p.id === socket.id)?.isHost)
+      return callback?.({ success: false, error: "Seul l'hôte peut lancer." });
+    if (room.players.length < 3)
+      return callback?.({ success: false, error: "Il faut au moins 3 joueurs." });
+
+    const validCategories = ["aleatoire", "shonen", "shojo", "seinen"];
+    room.category = validCategories.includes(category) ? category : "aleatoire";
+    room.totalRounds = [5, 10, 15].includes(parseInt(totalRounds)) ? parseInt(totalRounds) : 10;
+    room.state = "playing";
+    room.usedCitationIds = [];
+    room.players.forEach((p) => { p.score = 0; });
+    startCitationRound(code);
+    callback?.({ success: true });
+  });
+
+  socket.on("citation:answer_free", ({ answer }, callback) => {
+    const code = socket.citationRoomCode;
+    const room = citationRooms[code];
+    if (!room || room.phase !== "phase1") return callback?.({ success: false });
+    if (room.answers[socket.id] !== undefined) return callback?.({ success: false, error: "Tu as déjà répondu." });
+
+    const trimmed = (answer || "").trim().slice(0, 100);
+    if (!trimmed) return callback?.({ success: false, error: "La réponse ne peut pas être vide." });
+
+    room.answers[socket.id] = {
+      answer: trimmed,
+      choiceIndex: null,
+      phase: "phase1",
+      timestamp: Date.now(),
+    };
+
+    callback?.({ success: true });
+    io.to(code).emit("citation:state", getCitationRoomSummary(room));
+
+    const allAnswered = room.players.every((p) => room.answers[p.id] !== undefined);
+    if (allAnswered && room.phaseTimer) {
+      clearTimeout(room.phaseTimer);
+      room.phaseTimer = null;
+      startCitationPhase2(code);
+    }
+  });
+
+  socket.on("citation:answer_choice", ({ choiceIndex }, callback) => {
+    const code = socket.citationRoomCode;
+    const room = citationRooms[code];
+    if (!room || room.phase !== "phase2") return callback?.({ success: false });
+    if (room.answers[socket.id] !== undefined) return callback?.({ success: false, error: "Tu as déjà répondu." });
+
+    const idx = parseInt(choiceIndex);
+    if (isNaN(idx) || idx < 0 || idx > 3) return callback?.({ success: false, error: "Choix invalide." });
+
+    room.answers[socket.id] = {
+      answer: null,
+      choiceIndex: idx,
+      phase: "phase2",
+      timestamp: Date.now(),
+    };
+
+    callback?.({ success: true });
+    io.to(code).emit("citation:state", getCitationRoomSummary(room));
+
+    const allAnswered = room.players.every((p) => room.answers[p.id] !== undefined);
+    if (allAnswered && room.phaseTimer) {
+      clearTimeout(room.phaseTimer);
+      room.phaseTimer = null;
+      revealCitationRound(code);
+    }
+  });
+
+  socket.on("citation:next_round", (_, callback) => {
+    const code = socket.citationRoomCode;
+    const room = citationRooms[code];
+    if (!room || room.phase !== "reveal") return;
+    if (!room.players.find((p) => p.id === socket.id)?.isHost) return;
+
+    if (room.currentRound >= room.totalRounds) {
+      room.state = "gameover";
+      room.phase = null;
+      io.to(code).emit("citation:state", getCitationRoomSummary(room));
+    } else {
+      startCitationRound(code);
+    }
+    callback?.({ success: true });
+  });
+
+  socket.on("citation:restart", (_, callback) => {
+    const code = socket.citationRoomCode;
+    const room = citationRooms[code];
+    if (!room) return;
+    if (!room.players.find((p) => p.id === socket.id)?.isHost) return;
+
+    if (room.phaseTimer) clearTimeout(room.phaseTimer);
+    room.state = "lobby";
+    room.phase = null;
+    room.currentRound = 0;
+    room.currentCitation = null;
+    room.options = [];
+    room.correctOptionIndex = null;
+    room.answers = {};
+    room.roundScores = {};
+    room.phase1StartTime = null;
+    room.phase2StartTime = null;
+    room.phaseTimer = null;
+    room.usedCitationIds = [];
+    room.players.forEach((p) => { p.score = 0; });
+
+    io.to(code).emit("citation:state", getCitationRoomSummary(room));
+    callback?.({ success: true });
+  });
+
   socket.on("disconnect", () => {
+    const citCode = socket.citationRoomCode;
+    if (citCode && citationRooms[citCode]) {
+      const room = citationRooms[citCode];
+      const idx = room.players.findIndex((p) => p.id === socket.id);
+      if (idx !== -1) {
+        const wasHost = room.players[idx].isHost;
+        room.players.splice(idx, 1);
+        if (room.players.length === 0) {
+          if (room.phaseTimer) clearTimeout(room.phaseTimer);
+          delete citationRooms[citCode];
+        } else {
+          if (wasHost) room.players[0].isHost = true;
+          if (room.state === "playing" && room.phase !== "reveal") {
+            const allAnswered = room.players.every((p) => room.answers[p.id] !== undefined);
+            if (allAnswered && room.phaseTimer) {
+              clearTimeout(room.phaseTimer);
+              room.phaseTimer = null;
+              if (room.phase === "phase1") startCitationPhase2(citCode);
+              else revealCitationRound(citCode);
+            } else {
+              io.to(citCode).emit("citation:state", getCitationRoomSummary(room));
+            }
+          } else {
+            io.to(citCode).emit("citation:state", getCitationRoomSummary(room));
+          }
+        }
+      }
+    }
+
     const qsjCode = socket.qsjRoomCode;
     if (qsjCode && qsjRooms[qsjCode]) {
       const room = qsjRooms[qsjCode];

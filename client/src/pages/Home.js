@@ -12,7 +12,7 @@ export default function Home({ onJoin, gameType, onGoHome }) {
     if (!name.trim()) return setError("Entre ton prénom !");
     setLoading(true);
     setError("");
-    const createEvent = gameType === "lanote" ? "note:create" : gameType === "classement" ? "classement:create" : gameType === "quisuisje" ? "qsj:create" : "room:create";
+    const createEvent = gameType === "lanote" ? "note:create" : gameType === "classement" ? "classement:create" : gameType === "quisuisje" ? "qsj:create" : gameType === "citation" ? "citation:create" : "room:create";
     socket.emit(createEvent, { playerName: name.trim() }, (res) => {
       setLoading(false);
       if (res.success) {
@@ -28,7 +28,7 @@ export default function Home({ onJoin, gameType, onGoHome }) {
     if (!code.trim()) return setError("Entre le code de la room !");
     setLoading(true);
     setError("");
-    const joinEvent = gameType === "lanote" ? "note:join" : gameType === "classement" ? "classement:join" : gameType === "quisuisje" ? "qsj:join" : "room:join";
+    const joinEvent = gameType === "lanote" ? "note:join" : gameType === "classement" ? "classement:join" : gameType === "quisuisje" ? "qsj:join" : gameType === "citation" ? "citation:join" : "room:join";
     socket.emit(joinEvent, { playerName: name.trim(), code: code.trim().toUpperCase() }, (res) => {
       setLoading(false);
       if (res.success) {
@@ -60,6 +60,11 @@ export default function Home({ onJoin, gameType, onGoHome }) {
             <>
               <div className="logo">le <span>classement</span></div>
               <p className="text-muted mt-8">Le jeu des numéros secrets</p>
+            </>
+          ) : gameType === "citation" ? (
+            <>
+              <div className="logo">citation <span>mystère</span></div>
+              <p className="text-muted mt-8">Le jeu des citations manga</p>
             </>
           ) : gameType === "quisuisje" ? (
             <>
@@ -149,7 +154,12 @@ export default function Home({ onJoin, gameType, onGoHome }) {
         <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "20px 24px" }}>
           <p className="section-label" style={{ marginBottom: 12 }}>Comment jouer</p>
           <div className="gap-8">
-            {(gameType === "quisuisje" ? [
+            {(gameType === "citation" ? [
+              "Une citation manga s'affiche pour tout le monde",
+              "Phase 1 (15s) : écris librement le nom du personnage",
+              "Phase 2 (15s) : choisissez parmi 4 propositions",
+              "Plus tu réponds vite, plus tu marques de points !",
+            ] : gameType === "quisuisje" ? [
               "Chacun reçoit un personnage secret que les autres voient",
               "À ton tour, pose une question au groupe",
               "Le groupe vote OUI ou NON simultanément",

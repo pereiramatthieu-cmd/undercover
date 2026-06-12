@@ -7,6 +7,9 @@ import NoteResults from "./pages/NoteResults";
 import ClassementLobby from "./pages/ClassementLobby";
 import ClassementGame from "./pages/ClassementGame";
 import ClassementResults from "./pages/ClassementResults";
+import CitationLobby from "./pages/CitationLobby";
+import CitationGame from "./pages/CitationGame";
+import CitationResults from "./pages/CitationResults";
 import QSJLobby from "./pages/QSJLobby";
 import QSJGame from "./pages/QSJGame";
 import QSJResults from "./pages/QSJResults";
@@ -29,6 +32,7 @@ export default function App() {
   const [noteSecretNote, setNoteSecretNote] = useState(null);
   const [classementState, setClassementState] = useState(null);
   const [classementSecretNumber, setClassementSecretNumber] = useState(null);
+  const [citationState, setCitationState] = useState(null);
   const [qsjState, setQsjState] = useState(null);
   const [qsjOthersCharacters, setQsjOthersCharacters] = useState({});
 
@@ -77,6 +81,13 @@ export default function App() {
       setClassementSecretNumber(number);
     });
 
+    socket.on("citation:state", (state) => {
+      setCitationState(state);
+      if (state.state === "lobby") setPage("citationLobby");
+      else if (state.state === "playing") setPage("citationGame");
+      else if (state.state === "gameover") setPage("citationResults");
+    });
+
     socket.on("qsj:state", (state) => {
       setQsjState(state);
       if (state.state === "lobby") {
@@ -101,6 +112,7 @@ export default function App() {
       socket.off("note:secret");
       socket.off("classement:state");
       socket.off("classement:secret");
+      socket.off("citation:state");
       socket.off("qsj:state");
       socket.off("qsj:others_characters");
     };
@@ -118,6 +130,8 @@ export default function App() {
       setNoteSecretNote(null);
     } else if (gameType === "classement") {
       setClassementSecretNumber(null);
+    } else if (gameType === "citation") {
+      // page will be set by citation:state event
     } else if (gameType === "quisuisje") {
       setQsjOthersCharacters({});
     } else {
@@ -144,6 +158,7 @@ export default function App() {
     setNoteSecretNote(null);
     setClassementState(null);
     setClassementSecretNumber(null);
+    setCitationState(null);
     setQsjState(null);
     setQsjOthersCharacters({});
     if (socket.connected) socket.disconnect();
@@ -199,6 +214,15 @@ export default function App() {
       )}
       {page === "classementResults" && (
         <ClassementResults classementState={classementState} myId={socket.id} />
+      )}
+      {page === "citationLobby" && (
+        <CitationLobby citationState={citationState} roomCode={roomCode} playerName={playerName} myId={socket.id} />
+      )}
+      {page === "citationGame" && (
+        <CitationGame citationState={citationState} myId={socket.id} />
+      )}
+      {page === "citationResults" && (
+        <CitationResults citationState={citationState} myId={socket.id} onGoHome={handleGoHome} />
       )}
       {page === "qsjLobby" && (
         <QSJLobby qsjState={qsjState} roomCode={roomCode} playerName={playerName} myId={socket.id} />
