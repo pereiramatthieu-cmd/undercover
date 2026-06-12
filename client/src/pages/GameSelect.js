@@ -138,6 +138,28 @@ function CitationIllustration() {
   );
 }
 
+function DessinIllustration() {
+  return (
+    <svg viewBox="0 0 110 110" width="110" height="110" aria-hidden="true" fill="none">
+      {/* Canvas / paper */}
+      <rect x="10" y="10" width="72" height="58" rx="6" fill="var(--accent)" fillOpacity="0.1" stroke="var(--accent)" strokeOpacity="0.35" strokeWidth="1.5" />
+      {/* Drawing lines on canvas */}
+      <path d="M22 44 Q34 28 46 38 Q58 48 68 30" stroke="var(--accent)" strokeOpacity="0.55" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+      <circle cx="30" cy="52" r="6" fill="var(--accent)" fillOpacity="0.25" stroke="var(--accent)" strokeOpacity="0.4" strokeWidth="1.2" />
+      {/* Pencil */}
+      <rect x="74" y="6" width="9" height="38" rx="3" fill="var(--accent2)" fillOpacity="0.6" transform="rotate(22 74 6)" />
+      <polygon points="74,44 83,44 78.5,54" fill="var(--accent2)" fillOpacity="0.45" transform="rotate(22 74 6)" />
+      {/* Question mark badge */}
+      <circle cx="86" cy="80" r="18" fill="var(--surface)" stroke="var(--accent)" strokeOpacity="0.35" strokeWidth="1.5" />
+      <text x="86" y="87" textAnchor="middle" fontSize="20" fontWeight="900" fill="var(--accent)" fillOpacity="0.85" fontFamily="Syne, sans-serif">?</text>
+      {/* Chat bubbles */}
+      <ellipse cx="18" cy="86" rx="13" ry="8" fill="var(--accent)" fillOpacity="0.08" stroke="var(--accent)" strokeOpacity="0.2" strokeWidth="1" />
+      <rect x="10" y="82" width="16" height="3" rx="1.5" fill="var(--accent)" fillOpacity="0.25" />
+      <rect x="12" y="88" width="10" height="2.5" rx="1.25" fill="var(--accent)" fillOpacity="0.15" />
+    </svg>
+  );
+}
+
 function QSJIllustration() {
   return (
     <svg viewBox="0 0 100 110" width="100" height="110" aria-hidden="true" fill="none">
@@ -190,6 +212,13 @@ const GAMES = [
     title: "Citation Mystère",
     description: "Une citation manga s'affiche. Qui l'a dite ? Réponds vite en phase libre, puis choisissez parmi 4 propositions.",
     illustration: <CitationIllustration />,
+    available: true,
+  },
+  {
+    id: "dessin",
+    title: "Dessine le perso",
+    description: "Un joueur dessine un personnage manga en secret. Les autres devinent en temps réel — plus vite tu trouves, plus tu scores !",
+    illustration: <DessinIllustration />,
     available: true,
   },
   {

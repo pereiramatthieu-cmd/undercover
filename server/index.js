@@ -6,6 +6,7 @@ const wordPairs = require("./words");
 const classementQuestions = require("./classement_questions");
 const qsjCharacters = require("./qsj_characters");
 const citationData = require("./citation_data");
+const dessinData = require("./dessin_data");
 
 const app = express();
 app.use(cors());
@@ -25,6 +26,7 @@ const noteRooms = {};
 const classementRooms = {};
 const qsjRooms = {};
 const citationRooms = {};
+const dessinRooms = {};
 
 function generateRoomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -552,6 +554,113 @@ function startQSJGame(code) {
   });
 
   io.to(code).emit("qsj:state", getQSJRoomSummary(room));
+}
+
+// ── Dessin helpers ──────────────────────────────────────────────────
+
+function normalizeDessin(s) {
+  return s.toLowerCase().trim()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9 ]/g, "")
+    .replace(/\s+/g, " ").trim();
+}
+
+function checkDessinAnswer(guess, char) {
+  const g = normalizeDessin(guess);
+  const targets = [char.character, ...(char.aliases || [])].map(normalizeDessin);
+  for (const t of targets) {
+    if (g === t) return true;
+    const words = t.split(" ").filter((w) => w.length >= 3);
+    if (words.some((w) => g === w)) return true;
+    if (g.length >= 4 && levenshtein(g, t) <= 2) return true;
+    if (words.some((w) => w.length >= 5 && levenshtein(g, w) <= 1)) return true;
+  }
+  return false;
+}
+
+function calculateDessinScore(elapsedMs) {
+  const e = Math.min(Math.max(0, elapsedMs), 60000);
+  if (e <= 20000) return Math.round(1000 - (e / 20000) * 300);
+  if (e <= 40000) return Math.round(700 - ((e - 20000) / 20000) * 300);
+  return Math.round(400 - ((e - 40000) / 20000) * 200);
+}
+
+function getDessinRoomSummary(room) {
+  const isReveal = room.phase === "reveal" || room.state === "gameover";
+  return {
+    code: room.code,
+    players: room.players.map((p) => ({ id: p.id, name: p.name, isHost: p.isHost, score: p.score })),
+    state: room.state,
+    phase: room.phase,
+    category: room.category,
+    totalRounds: room.totalRounds,
+    currentRound: room.currentRound,
+    drawerId: room.drawerId,
+    drawerName: room.players.find((p) => p.id === room.drawerId)?.name || "",
+    currentCharacter: isReveal ? room.currentCharacter : null,
+    foundPlayerIds: Object.entries(room.answers).filter(([, a]) => a?.found).map(([id]) => id),
+    foundPlayerNames: Object.entries(room.answers)
+      .filter(([, a]) => a?.found)
+      .map(([id]) => room.players.find((p) => p.id === id)?.name || ""),
+    attemptCounts: room.attempts,
+    answers: isReveal ? room.answers : {},
+    roundScores: isReveal ? room.roundScores : {},
+    roundStartTime: room.roundStartTime,
+    totalGuessers: room.players.filter((p) => p.id !== room.drawerId).length,
+  };
+}
+
+function startDessinRound(code) {
+  const room = dessinRooms[code];
+  if (!room) return;
+  if (room.roundTimer) { clearTimeout(room.roundTimer); room.roundTimer = null; }
+
+  room.currentRound += 1;
+  const drawerIndex = (room.currentRound - 1) % room.players.length;
+  room.drawerId = room.players[drawerIndex].id;
+
+  let pool = dessinData.filter((c) =>
+    (room.category === "aleatoire" || c.category === room.category) &&
+    !room.usedCharacterNames.includes(c.character)
+  );
+  if (pool.length === 0) {
+    room.usedCharacterNames = [];
+    pool = dessinData.filter((c) => room.category === "aleatoire" || c.category === room.category);
+  }
+  const char = pool[Math.floor(Math.random() * pool.length)];
+  room.usedCharacterNames.push(char.character);
+  room.currentCharacter = char;
+
+  room.answers = {};
+  room.attempts = {};
+  room.roundScores = {};
+  room.phase = "drawing";
+  room.roundStartTime = Date.now();
+
+  room.roundTimer = setTimeout(() => revealDessinRound(code), 60000);
+  io.to(code).emit("dessin:state", getDessinRoomSummary(room));
+  io.to(room.drawerId).emit("dessin:character", { character: char.character, manga: char.manga });
+}
+
+function revealDessinRound(code) {
+  const room = dessinRooms[code];
+  if (!room || room.state !== "playing") return;
+  if (room.roundTimer) { clearTimeout(room.roundTimer); room.roundTimer = null; }
+
+  const foundCount = Object.values(room.answers).filter((a) => a?.found).length;
+  room.players.forEach((p) => {
+    if (p.id === room.drawerId) {
+      const pts = foundCount * 150;
+      room.roundScores[p.id] = pts;
+      p.score += pts;
+    } else {
+      const pts = room.roundScores[p.id] || 0;
+      p.score += pts;
+    }
+  });
+
+  room.phase = "reveal";
+  io.to(code).emit("dessin:state", getDessinRoomSummary(room));
 }
 
 io.on("connection", (socket) => {
@@ -1359,6 +1468,132 @@ io.on("connection", (socket) => {
     callback?.({ success: true });
   });
 
+  // ── Dessin events ────────────────────────────────────────────────
+
+  socket.on("dessin:create", ({ playerName }, callback) => {
+    if (!playerName?.trim()) return callback?.({ success: false, error: "Prénom requis." });
+    let code;
+    do { code = generateRoomCode(); } while (dessinRooms[code]);
+    dessinRooms[code] = {
+      code, state: "lobby", phase: null,
+      players: [{ id: socket.id, name: playerName.trim(), isHost: true, score: 0 }],
+      category: "aleatoire", totalRounds: 10, currentRound: 0,
+      drawerId: null, currentCharacter: null, usedCharacterNames: [],
+      answers: {}, attempts: {}, roundScores: {}, roundTimer: null, roundStartTime: null,
+    };
+    socket.join(code);
+    socket.dessinRoomCode = code;
+    callback?.({ success: true, code });
+    io.to(code).emit("dessin:state", getDessinRoomSummary(dessinRooms[code]));
+  });
+
+  socket.on("dessin:join", ({ playerName, code }, callback) => {
+    const room = dessinRooms[code?.toUpperCase()];
+    if (!room) return callback?.({ success: false, error: "Room introuvable." });
+    if (room.state !== "lobby") return callback?.({ success: false, error: "Partie déjà en cours." });
+    if (room.players.length >= 8) return callback?.({ success: false, error: "La room est pleine (8 joueurs max)." });
+    if (room.players.find((p) => p.name.toLowerCase() === playerName?.toLowerCase()))
+      return callback?.({ success: false, error: "Ce pseudo est déjà pris." });
+    room.players.push({ id: socket.id, name: playerName.trim(), isHost: false, score: 0 });
+    socket.join(code.toUpperCase());
+    socket.dessinRoomCode = code.toUpperCase();
+    callback?.({ success: true, code: code.toUpperCase() });
+    io.to(code.toUpperCase()).emit("dessin:state", getDessinRoomSummary(room));
+  });
+
+  socket.on("dessin:start", ({ category, totalRounds }, callback) => {
+    const code = socket.dessinRoomCode;
+    const room = dessinRooms[code];
+    if (!room) return callback?.({ success: false });
+    if (!room.players.find((p) => p.id === socket.id)?.isHost)
+      return callback?.({ success: false, error: "Seul l'hôte peut lancer." });
+    if (room.players.length < 3)
+      return callback?.({ success: false, error: "Il faut au moins 3 joueurs." });
+    const validCats = ["aleatoire", "shonen", "shojo", "seinen"];
+    room.category = validCats.includes(category) ? category : "aleatoire";
+    room.totalRounds = [5, 10, 15].includes(parseInt(totalRounds)) ? parseInt(totalRounds) : 10;
+    room.state = "playing";
+    room.usedCharacterNames = [];
+    room.players.forEach((p) => { p.score = 0; });
+    startDessinRound(code);
+    callback?.({ success: true });
+  });
+
+  socket.on("dessin:draw", (data) => {
+    const code = socket.dessinRoomCode;
+    const room = dessinRooms[code];
+    if (!room || room.drawerId !== socket.id || room.phase !== "drawing") return;
+    socket.to(code).emit("dessin:stroke", data);
+  });
+
+  socket.on("dessin:clear", () => {
+    const code = socket.dessinRoomCode;
+    const room = dessinRooms[code];
+    if (!room || room.drawerId !== socket.id || room.phase !== "drawing") return;
+    socket.to(code).emit("dessin:stroke", { type: "clear" });
+  });
+
+  socket.on("dessin:guess", ({ guess }, callback) => {
+    const code = socket.dessinRoomCode;
+    const room = dessinRooms[code];
+    if (!room || room.phase !== "drawing") return callback?.({ success: false });
+    if (socket.id === room.drawerId) return callback?.({ success: false, error: "Le dessinateur ne peut pas deviner." });
+    if (room.answers[socket.id]?.found) return callback?.({ success: false, error: "Tu as déjà trouvé." });
+    const attempts = room.attempts[socket.id] || 0;
+    if (attempts >= 3) return callback?.({ success: false, error: "Plus de tentatives disponibles." });
+
+    room.attempts[socket.id] = attempts + 1;
+    const trimmed = (guess || "").trim().slice(0, 60);
+    if (!trimmed) return callback?.({ success: false });
+
+    const correct = checkDessinAnswer(trimmed, room.currentCharacter);
+    if (correct) {
+      const elapsed = Date.now() - room.roundStartTime;
+      const pts = calculateDessinScore(elapsed);
+      room.answers[socket.id] = { found: true, timestamp: Date.now() };
+      room.roundScores[socket.id] = pts;
+    } else {
+      if (!room.answers[socket.id]) room.answers[socket.id] = { found: false };
+    }
+
+    callback?.({ success: true, correct, attemptsLeft: 3 - room.attempts[socket.id] });
+    io.to(code).emit("dessin:state", getDessinRoomSummary(room));
+
+    if (correct) {
+      const guessers = room.players.filter((p) => p.id !== room.drawerId);
+      const allFound = guessers.length > 0 && guessers.every((p) => room.answers[p.id]?.found);
+      if (allFound) revealDessinRound(code);
+    }
+  });
+
+  socket.on("dessin:next_round", (_, callback) => {
+    const code = socket.dessinRoomCode;
+    const room = dessinRooms[code];
+    if (!room) return;
+    if (!room.players.find((p) => p.id === socket.id)?.isHost) return;
+    if (room.currentRound >= room.totalRounds) {
+      room.state = "gameover";
+      io.to(code).emit("dessin:state", getDessinRoomSummary(room));
+    } else {
+      startDessinRound(code);
+    }
+    callback?.({ success: true });
+  });
+
+  socket.on("dessin:restart", (_, callback) => {
+    const code = socket.dessinRoomCode;
+    const room = dessinRooms[code];
+    if (!room) return;
+    if (!room.players.find((p) => p.id === socket.id)?.isHost) return;
+    if (room.roundTimer) clearTimeout(room.roundTimer);
+    room.state = "lobby"; room.phase = null; room.currentRound = 0;
+    room.drawerId = null; room.currentCharacter = null; room.usedCharacterNames = [];
+    room.answers = {}; room.attempts = {}; room.roundScores = {}; room.roundTimer = null; room.roundStartTime = null;
+    room.players.forEach((p) => { p.score = 0; });
+    io.to(code).emit("dessin:state", getDessinRoomSummary(room));
+    callback?.({ success: true });
+  });
+
   socket.on("citation:restart", (_, callback) => {
     const code = socket.citationRoomCode;
     const room = citationRooms[code];
@@ -1409,6 +1644,40 @@ io.on("connection", (socket) => {
             }
           } else {
             io.to(citCode).emit("citation:state", getCitationRoomSummary(room));
+          }
+        }
+      }
+    }
+
+    const dessinCode = socket.dessinRoomCode;
+    if (dessinCode && dessinRooms[dessinCode]) {
+      const room = dessinRooms[dessinCode];
+      const idx = room.players.findIndex((p) => p.id === socket.id);
+      if (idx !== -1) {
+        const wasHost = room.players[idx].isHost;
+        const wasDrawer = room.drawerId === socket.id;
+        room.players.splice(idx, 1);
+        if (room.players.length === 0) {
+          if (room.roundTimer) clearTimeout(room.roundTimer);
+          delete dessinRooms[dessinCode];
+        } else {
+          if (wasHost) room.players[0].isHost = true;
+          if (room.state === "playing" && room.phase === "drawing") {
+            if (wasDrawer) {
+              if (room.roundTimer) { clearTimeout(room.roundTimer); room.roundTimer = null; }
+              revealDessinRound(dessinCode);
+            } else {
+              const guessers = room.players.filter((p) => p.id !== room.drawerId);
+              const allFound = guessers.length > 0 && guessers.every((p) => room.answers[p.id]?.found);
+              if (allFound) {
+                if (room.roundTimer) { clearTimeout(room.roundTimer); room.roundTimer = null; }
+                revealDessinRound(dessinCode);
+              } else {
+                io.to(dessinCode).emit("dessin:state", getDessinRoomSummary(room));
+              }
+            }
+          } else {
+            io.to(dessinCode).emit("dessin:state", getDessinRoomSummary(room));
           }
         }
       }

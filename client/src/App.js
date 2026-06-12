@@ -10,6 +10,9 @@ import ClassementResults from "./pages/ClassementResults";
 import CitationLobby from "./pages/CitationLobby";
 import CitationGame from "./pages/CitationGame";
 import CitationResults from "./pages/CitationResults";
+import DessinLobby from "./pages/DessinLobby";
+import DessinGame from "./pages/DessinGame";
+import DessinResults from "./pages/DessinResults";
 import QSJLobby from "./pages/QSJLobby";
 import QSJGame from "./pages/QSJGame";
 import QSJResults from "./pages/QSJResults";
@@ -33,6 +36,8 @@ export default function App() {
   const [classementState, setClassementState] = useState(null);
   const [classementSecretNumber, setClassementSecretNumber] = useState(null);
   const [citationState, setCitationState] = useState(null);
+  const [dessinState, setDessinState] = useState(null);
+  const [dessinCharacter, setDessinCharacter] = useState(null);
   const [qsjState, setQsjState] = useState(null);
   const [qsjOthersCharacters, setQsjOthersCharacters] = useState({});
 
@@ -88,6 +93,18 @@ export default function App() {
       else if (state.state === "gameover") setPage("citationResults");
     });
 
+    socket.on("dessin:state", (state) => {
+      setDessinState(state);
+      if (state.phase === "drawing") setDessinCharacter(null);
+      if (state.state === "lobby") setPage("dessinLobby");
+      else if (state.state === "playing") setPage("dessinGame");
+      else if (state.state === "gameover") setPage("dessinResults");
+    });
+
+    socket.on("dessin:character", ({ character, manga }) => {
+      setDessinCharacter({ character, manga });
+    });
+
     socket.on("qsj:state", (state) => {
       setQsjState(state);
       if (state.state === "lobby") {
@@ -113,6 +130,8 @@ export default function App() {
       socket.off("classement:state");
       socket.off("classement:secret");
       socket.off("citation:state");
+      socket.off("dessin:state");
+      socket.off("dessin:character");
       socket.off("qsj:state");
       socket.off("qsj:others_characters");
     };
@@ -132,6 +151,8 @@ export default function App() {
       setClassementSecretNumber(null);
     } else if (gameType === "citation") {
       // page will be set by citation:state event
+    } else if (gameType === "dessin") {
+      // page will be set by dessin:state event
     } else if (gameType === "quisuisje") {
       setQsjOthersCharacters({});
     } else {
@@ -159,6 +180,8 @@ export default function App() {
     setClassementState(null);
     setClassementSecretNumber(null);
     setCitationState(null);
+    setDessinState(null);
+    setDessinCharacter(null);
     setQsjState(null);
     setQsjOthersCharacters({});
     if (socket.connected) socket.disconnect();
@@ -223,6 +246,15 @@ export default function App() {
       )}
       {page === "citationResults" && (
         <CitationResults citationState={citationState} myId={socket.id} onGoHome={handleGoHome} />
+      )}
+      {page === "dessinLobby" && (
+        <DessinLobby dessinState={dessinState} roomCode={roomCode} playerName={playerName} myId={socket.id} />
+      )}
+      {page === "dessinGame" && (
+        <DessinGame dessinState={dessinState} myId={socket.id} secretCharacter={dessinCharacter} />
+      )}
+      {page === "dessinResults" && (
+        <DessinResults dessinState={dessinState} myId={socket.id} onGoHome={handleGoHome} />
       )}
       {page === "qsjLobby" && (
         <QSJLobby qsjState={qsjState} roomCode={roomCode} playerName={playerName} myId={socket.id} />
