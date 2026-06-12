@@ -1559,11 +1559,11 @@ io.on("connection", (socket) => {
     callback?.({ success: true, correct, attemptsLeft: 3 - room.attempts[socket.id] });
     io.to(code).emit("dessin:state", getDessinRoomSummary(room));
 
-    if (correct) {
-      const guessers = room.players.filter((p) => p.id !== room.drawerId);
-      const allFound = guessers.length > 0 && guessers.every((p) => room.answers[p.id]?.found);
-      if (allFound) revealDessinRound(code);
-    }
+    const guessers = room.players.filter((p) => p.id !== room.drawerId);
+    const allDone = guessers.length > 0 && guessers.every(
+      (p) => room.answers[p.id]?.found || (room.attempts[p.id] || 0) >= 3
+    );
+    if (allDone) revealDessinRound(code);
   });
 
   socket.on("dessin:next_round", (_, callback) => {
@@ -1668,8 +1668,10 @@ io.on("connection", (socket) => {
               revealDessinRound(dessinCode);
             } else {
               const guessers = room.players.filter((p) => p.id !== room.drawerId);
-              const allFound = guessers.length > 0 && guessers.every((p) => room.answers[p.id]?.found);
-              if (allFound) {
+              const allDone = guessers.length > 0 && guessers.every(
+                (p) => room.answers[p.id]?.found || (room.attempts[p.id] || 0) >= 3
+              );
+              if (allDone) {
                 if (room.roundTimer) { clearTimeout(room.roundTimer); room.roundTimer = null; }
                 revealDessinRound(dessinCode);
               } else {

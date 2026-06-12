@@ -95,7 +95,6 @@ export default function App() {
 
     socket.on("dessin:state", (state) => {
       setDessinState(state);
-      if (state.phase === "drawing") setDessinCharacter(null);
       if (state.state === "lobby") setPage("dessinLobby");
       else if (state.state === "playing") setPage("dessinGame");
       else if (state.state === "gameover") setPage("dessinResults");
