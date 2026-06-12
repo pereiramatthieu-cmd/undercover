@@ -88,6 +88,7 @@ export default function CitationGame({ citationState, myId }) {
   const phase = citationState?.phase;
   const answeredPlayerIds = citationState?.answeredPlayerIds || [];
   const hasAnswered = answeredPlayerIds.includes(myId);
+  const isHost = (citationState?.players || []).find((p) => p.id === myId)?.isHost;
 
   // Reset on new round
   useEffect(() => {
@@ -303,6 +304,7 @@ export default function CitationGame({ citationState, myId }) {
                       gap: 2,
                       transition: "all 0.15s",
                       fontFamily: "Inter, sans-serif",
+                      color: "var(--text)",
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.borderColor = "rgba(124,106,247,0.5)";
@@ -313,7 +315,7 @@ export default function CitationGame({ citationState, myId }) {
                       e.currentTarget.style.background = "var(--surface)";
                     }}
                   >
-                    <span style={{ fontWeight: 700, fontSize: "0.95rem" }}>{opt.character}</span>
+                    <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "var(--text)" }}>{opt.character}</span>
                     <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>{opt.manga}</span>
                   </button>
                 ))}
@@ -464,6 +466,20 @@ export default function CitationGame({ citationState, myId }) {
                 })}
               </div>
             </div>
+
+            {/* Next round */}
+            {isHost ? (
+              <button
+                className="btn btn-primary btn-full"
+                onClick={() => socket.emit("citation:next_round", {})}
+              >
+                {citationState.currentRound >= citationState.totalRounds ? "Voir les résultats" : "Manche suivante →"}
+              </button>
+            ) : (
+              <p className="text-center text-muted pulse" style={{ fontSize: "0.88rem" }}>
+                En attente de l'hôte...
+              </p>
+            )}
 
           </div>
         )}
