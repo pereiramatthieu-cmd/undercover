@@ -118,7 +118,6 @@ export default function CitationGame({ citationState, myId }) {
   const roundScores = citationState.roundScores || {};
   const citation = citationState.currentCitation;
   const isReveal = phase === "reveal";
-  const correctIdx = citationState.correctOptionIndex;
   const myAnswer = answers[myId];
 
   return (

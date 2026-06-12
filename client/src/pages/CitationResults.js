@@ -11,7 +11,7 @@ const CATEGORIES = {
 export default function CitationResults({ citationState, myId, onGoHome }) {
   if (!citationState) return null;
 
-  const { players = [], category, totalRounds, currentRound } = citationState;
+  const { players = [], category, totalRounds } = citationState;
   const isHost = players.find((p) => p.id === myId)?.isHost;
 
   const sortedByScore = [...players].sort((a, b) => b.score - a.score);
