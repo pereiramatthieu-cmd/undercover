@@ -4,6 +4,7 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 const wordPairs = require("./words");
 const classementQuestions = require("./classement_questions");
+const qsjCharacters = require("./qsj_characters");
 
 const app = express();
 app.use(cors());
@@ -21,6 +22,7 @@ const io = new Server(server, {
 const rooms = {};
 const noteRooms = {};
 const classementRooms = {};
+const qsjRooms = {};
 
 function generateRoomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -245,6 +247,121 @@ function startClassementRound(code) {
   });
 
   io.to(code).emit("classement:state", getClassementRoomSummary(room));
+}
+
+// ─── Qui suis-je helpers ───
+
+function normalizeGuess(s) {
+  return s.toLowerCase().trim()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9 ]/g, "")
+    .replace(/\s+/g, " ").trim();
+}
+
+function checkQSJGuess(guess, character) {
+  const normGuess = normalizeGuess(guess);
+  const normChar = normalizeGuess(character);
+  if (normGuess === normChar) return true;
+  const words = normChar.split(" ").filter((w) => w.length >= 4);
+  return words.some((w) => normGuess === w);
+}
+
+function getQSJRoomSummary(room) {
+  const isGameover = room.state === "gameover";
+  return {
+    code: room.code,
+    players: room.players.map((p) => ({
+      id: p.id,
+      name: p.name,
+      isHost: p.isHost,
+      character: isGameover ? p.character : null,
+    })),
+    state: room.state,
+    phase: room.phase,
+    category: room.category,
+    totalRounds: room.totalRounds,
+    currentRound: room.currentRound,
+    currentTurnPlayerId: room.currentTurnPlayerId,
+    currentQuestion: room.currentQuestion,
+    votedPlayerIds: Object.keys(room.votes),
+    votes: room.phase === "vote_reveal" ? room.votes : {},
+    voteCount: Object.keys(room.votes).length,
+    totalVoters: room.players.filter((p) => p.id !== room.currentTurnPlayerId).length,
+    winner: room.winner,
+    winnerName: room.winnerName,
+    wrongGuess: room.wrongGuess || null,
+  };
+}
+
+function advanceQSJTurn(code) {
+  const room = qsjRooms[code];
+  if (!room || room.state !== "playing") return;
+
+  if (room.players.length < 2) {
+    room.state = "gameover";
+    room.phase = null;
+    io.to(code).emit("qsj:state", getQSJRoomSummary(room));
+    return;
+  }
+
+  const currentIdx = room.players.findIndex((p) => p.id === room.currentTurnPlayerId);
+  const n = room.players.length;
+  const nextIdx = currentIdx === -1 ? 0 : (currentIdx + 1) % n;
+
+  if (nextIdx === 0 && currentIdx !== -1) {
+    room.currentRound += 1;
+    if (room.currentRound > room.totalRounds) {
+      room.state = "gameover";
+      room.phase = null;
+      io.to(code).emit("qsj:state", getQSJRoomSummary(room));
+      return;
+    }
+  }
+
+  room.currentTurnPlayerId = room.players[nextIdx].id;
+  room.currentQuestion = null;
+  room.votes = {};
+  room.wrongGuess = null;
+  room.phase = "questioning";
+
+  io.to(code).emit("qsj:state", getQSJRoomSummary(room));
+}
+
+function startQSJGame(code) {
+  const room = qsjRooms[code];
+  if (!room) return;
+
+  const pool = [...(qsjCharacters[room.category] || Object.values(qsjCharacters).flat())];
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  room.players.forEach((p, i) => { p.character = pool[i % pool.length]; });
+
+  for (let i = room.players.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [room.players[i], room.players[j]] = [room.players[j], room.players[i]];
+  }
+
+  room.state = "playing";
+  room.phase = "questioning";
+  room.currentRound = 1;
+  room.currentTurnPlayerId = room.players[0].id;
+  room.currentQuestion = null;
+  room.votes = {};
+  room.winner = null;
+  room.winnerName = null;
+  room.wrongGuess = null;
+
+  room.players.forEach((p) => {
+    const othersChars = {};
+    room.players.forEach((other) => {
+      if (other.id !== p.id) othersChars[other.id] = other.character;
+    });
+    io.to(p.id).emit("qsj:others_characters", { characters: othersChars });
+  });
+
+  io.to(code).emit("qsj:state", getQSJRoomSummary(room));
 }
 
 io.on("connection", (socket) => {
@@ -734,8 +851,227 @@ io.on("connection", (socket) => {
     callback?.({ success: true });
   });
 
+  // ─── Qui suis-je events ───
+
+  socket.on("qsj:create", ({ playerName }, callback) => {
+    let code;
+    do { code = generateRoomCode(); } while (qsjRooms[code]);
+
+    qsjRooms[code] = {
+      code,
+      players: [{ id: socket.id, name: playerName, isHost: true, character: null }],
+      state: "lobby",
+      phase: null,
+      category: "manga",
+      totalRounds: 3,
+      currentRound: 1,
+      currentTurnPlayerId: null,
+      currentQuestion: null,
+      votes: {},
+      winner: null,
+      winnerName: null,
+      wrongGuess: null,
+      wrongGuessTimer: null,
+    };
+
+    socket.join(code);
+    socket.qsjRoomCode = code;
+    callback({ success: true, code });
+    io.to(code).emit("qsj:state", getQSJRoomSummary(qsjRooms[code]));
+  });
+
+  socket.on("qsj:join", ({ playerName, code }, callback) => {
+    const room = qsjRooms[code];
+    if (!room) return callback({ success: false, error: "Room introuvable." });
+    if (room.state !== "lobby") return callback({ success: false, error: "La partie a déjà commencé." });
+    if (room.players.length >= 8) return callback({ success: false, error: "La room est pleine (8 joueurs max)." });
+    if (room.players.find((p) => p.name.toLowerCase() === playerName.toLowerCase()))
+      return callback({ success: false, error: "Ce pseudo est déjà pris." });
+
+    room.players.push({ id: socket.id, name: playerName, isHost: false, character: null });
+    socket.join(code);
+    socket.qsjRoomCode = code;
+    callback({ success: true, code });
+    io.to(code).emit("qsj:state", getQSJRoomSummary(room));
+  });
+
+  socket.on("qsj:start", ({ category, totalRounds }, callback) => {
+    const code = socket.qsjRoomCode;
+    const room = qsjRooms[code];
+    if (!room) return callback?.({ success: false });
+    if (!room.players.find((p) => p.id === socket.id)?.isHost)
+      return callback?.({ success: false, error: "Seul l'hôte peut lancer." });
+    if (room.players.length < 2)
+      return callback?.({ success: false, error: "Il faut au moins 2 joueurs." });
+    if (!qsjCharacters[category])
+      return callback?.({ success: false, error: "Catégorie invalide." });
+
+    room.category = category;
+    room.totalRounds = Math.min(5, Math.max(1, parseInt(totalRounds) || 3));
+    startQSJGame(code);
+    callback?.({ success: true });
+  });
+
+  socket.on("qsj:ask", ({ question }, callback) => {
+    const code = socket.qsjRoomCode;
+    const room = qsjRooms[code];
+    if (!room || room.state !== "playing" || room.phase !== "questioning")
+      return callback?.({ success: false });
+    if (room.currentTurnPlayerId !== socket.id)
+      return callback?.({ success: false, error: "Ce n'est pas ton tour." });
+
+    const trimmed = (question || "").trim().slice(0, 200);
+    if (!trimmed) return callback?.({ success: false, error: "La question ne peut pas être vide." });
+
+    const player = room.players.find((p) => p.id === socket.id);
+    room.currentQuestion = { text: trimmed, askerId: socket.id, askerName: player.name };
+    room.votes = {};
+    room.phase = "voting";
+
+    io.to(code).emit("qsj:state", getQSJRoomSummary(room));
+    callback?.({ success: true });
+  });
+
+  socket.on("qsj:vote", ({ vote }, callback) => {
+    const code = socket.qsjRoomCode;
+    const room = qsjRooms[code];
+    if (!room || room.state !== "playing" || room.phase !== "voting")
+      return callback?.({ success: false });
+    if (room.currentTurnPlayerId === socket.id)
+      return callback?.({ success: false, error: "Tu ne peux pas voter sur ta propre question." });
+    if (room.votes[socket.id] !== undefined)
+      return callback?.({ success: false, error: "Tu as déjà voté." });
+    if (vote !== "oui" && vote !== "non")
+      return callback?.({ success: false, error: "Vote invalide." });
+
+    room.votes[socket.id] = vote;
+
+    const voters = room.players.filter((p) => p.id !== room.currentTurnPlayerId);
+    const allVoted = voters.every((p) => room.votes[p.id] !== undefined);
+
+    if (allVoted) {
+      room.phase = "vote_reveal";
+    }
+
+    io.to(code).emit("qsj:state", getQSJRoomSummary(room));
+    callback?.({ success: true });
+  });
+
+  socket.on("qsj:guess", ({ guess }, callback) => {
+    const code = socket.qsjRoomCode;
+    const room = qsjRooms[code];
+    if (!room || room.state !== "playing" || room.phase !== "vote_reveal")
+      return callback?.({ success: false });
+    if (room.currentTurnPlayerId !== socket.id)
+      return callback?.({ success: false, error: "Ce n'est pas ton tour." });
+    if (room.wrongGuess)
+      return callback?.({ success: false, error: "En attente du prochain tour." });
+
+    const player = room.players.find((p) => p.id === socket.id);
+    if (!player) return callback?.({ success: false });
+
+    const correct = checkQSJGuess(guess, player.character);
+
+    if (correct) {
+      room.winner = socket.id;
+      room.winnerName = player.name;
+      room.state = "gameover";
+      room.phase = null;
+      io.to(code).emit("qsj:state", getQSJRoomSummary(room));
+      callback?.({ success: true, correct: true });
+    } else {
+      room.wrongGuess = { playerName: player.name, guess };
+      io.to(code).emit("qsj:state", getQSJRoomSummary(room));
+      callback?.({ success: true, correct: false });
+
+      room.wrongGuessTimer = setTimeout(() => {
+        const r = qsjRooms[code];
+        if (!r || r.state !== "playing") return;
+        r.wrongGuess = null;
+        r.wrongGuessTimer = null;
+        advanceQSJTurn(code);
+      }, 2000);
+    }
+  });
+
+  socket.on("qsj:pass", (_, callback) => {
+    const code = socket.qsjRoomCode;
+    const room = qsjRooms[code];
+    if (!room || room.state !== "playing" || room.phase !== "vote_reveal")
+      return callback?.({ success: false });
+    if (room.currentTurnPlayerId !== socket.id)
+      return callback?.({ success: false, error: "Ce n'est pas ton tour." });
+    if (room.wrongGuess)
+      return callback?.({ success: false });
+
+    advanceQSJTurn(code);
+    callback?.({ success: true });
+  });
+
+  socket.on("qsj:restart", (_, callback) => {
+    const code = socket.qsjRoomCode;
+    const room = qsjRooms[code];
+    if (!room) return;
+    if (!room.players.find((p) => p.id === socket.id)?.isHost) return;
+
+    if (room.wrongGuessTimer) clearTimeout(room.wrongGuessTimer);
+    room.state = "lobby";
+    room.phase = null;
+    room.category = "manga";
+    room.totalRounds = 3;
+    room.currentRound = 1;
+    room.currentTurnPlayerId = null;
+    room.currentQuestion = null;
+    room.votes = {};
+    room.winner = null;
+    room.winnerName = null;
+    room.wrongGuess = null;
+    room.wrongGuessTimer = null;
+    room.players.forEach((p) => { p.character = null; });
+
+    io.to(code).emit("qsj:state", getQSJRoomSummary(room));
+    callback?.({ success: true });
+  });
+
   // Disconnect
   socket.on("disconnect", () => {
+    const qsjCode = socket.qsjRoomCode;
+    if (qsjCode && qsjRooms[qsjCode]) {
+      const room = qsjRooms[qsjCode];
+      const idx = room.players.findIndex((p) => p.id === socket.id);
+      if (idx !== -1) {
+        const wasHost = room.players[idx].isHost;
+        const wasCurrentTurn = room.currentTurnPlayerId === socket.id;
+        const wasVoterDuringVoting = room.phase === "voting" && room.currentTurnPlayerId !== socket.id;
+        room.players.splice(idx, 1);
+
+        if (room.players.length === 0) {
+          if (room.wrongGuessTimer) clearTimeout(room.wrongGuessTimer);
+          delete qsjRooms[qsjCode];
+        } else {
+          if (wasHost) room.players[0].isHost = true;
+          if (room.state === "playing") {
+            if (wasCurrentTurn) {
+              if (room.wrongGuessTimer) { clearTimeout(room.wrongGuessTimer); room.wrongGuessTimer = null; }
+              room.wrongGuess = null;
+              advanceQSJTurn(qsjCode);
+            } else if (wasVoterDuringVoting) {
+              const voters = room.players.filter((p) => p.id !== room.currentTurnPlayerId);
+              const allVoted = voters.length > 0 && voters.every((p) => room.votes[p.id] !== undefined);
+              if (allVoted) {
+                room.phase = "vote_reveal";
+              }
+              io.to(qsjCode).emit("qsj:state", getQSJRoomSummary(room));
+            } else {
+              io.to(qsjCode).emit("qsj:state", getQSJRoomSummary(room));
+            }
+          } else {
+            io.to(qsjCode).emit("qsj:state", getQSJRoomSummary(room));
+          }
+        }
+      }
+    }
+
     const noteCode = socket.noteRoomCode;
     if (noteCode && noteRooms[noteCode]) {
       const nroom = noteRooms[noteCode];

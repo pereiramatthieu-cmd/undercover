@@ -111,6 +111,29 @@ function ClassementIllustration() {
   );
 }
 
+function QSJIllustration() {
+  return (
+    <svg viewBox="0 0 100 110" width="100" height="110" aria-hidden="true" fill="none">
+      {/* Central head with ? */}
+      <circle cx="50" cy="28" r="22" fill="var(--accent)" fillOpacity="0.12" stroke="var(--accent)" strokeOpacity="0.4" strokeWidth="1.5" />
+      <text x="50" y="38" textAnchor="middle" fontSize="26" fontWeight="800" fill="var(--accent)" fillOpacity="0.9" fontFamily="Syne, sans-serif">?</text>
+      {/* Thought bubble dots */}
+      <circle cx="74" cy="18" r="4" fill="var(--accent2)" fillOpacity="0.5" />
+      <circle cx="82" cy="10" r="3" fill="var(--accent2)" fillOpacity="0.35" />
+      <circle cx="88" cy="4" r="2" fill="var(--accent2)" fillOpacity="0.2" />
+      {/* Name tag */}
+      <rect x="14" y="60" width="72" height="30" rx="6" fill="var(--accent)" fillOpacity="0.14" stroke="var(--accent)" strokeOpacity="0.3" strokeWidth="1.2" />
+      <rect x="22" y="68" width="56" height="6" rx="3" fill="var(--accent)" fillOpacity="0.22" />
+      <rect x="30" y="79" width="40" height="5" rx="2.5" fill="var(--accent)" fillOpacity="0.15" />
+      {/* Speech bubbles left & right */}
+      <ellipse cx="16" cy="40" rx="11" ry="7" fill="var(--accent)" fillOpacity="0.1" stroke="var(--accent)" strokeOpacity="0.25" strokeWidth="1" />
+      <text x="16" y="44" textAnchor="middle" fontSize="9" fill="var(--accent)" fillOpacity="0.6" fontFamily="Inter, sans-serif">OUI</text>
+      <ellipse cx="84" cy="40" rx="11" ry="7" fill="var(--accent2)" fillOpacity="0.1" stroke="var(--accent2)" strokeOpacity="0.25" strokeWidth="1" />
+      <text x="84" y="44" textAnchor="middle" fontSize="9" fill="var(--accent2)" fillOpacity="0.6" fontFamily="Inter, sans-serif">NON</text>
+    </svg>
+  );
+}
+
 // ── Component ──────────────────────────────────────────────────────
 
 const GAMES = [
@@ -133,6 +156,13 @@ const GAMES = [
     title: "Le Classement",
     description: "Chacun reçoit un numéro secret. Répondez aux questions et classez les autres joueurs du plus petit au plus grand.",
     illustration: <ClassementIllustration />,
+    available: true,
+  },
+  {
+    id: "quisuisje",
+    title: "Qui suis-je ?",
+    description: "Chacun reçoit un personnage secret que les autres voient. Pose des questions, vote OUI/NON, et devine le premier !",
+    illustration: <QSJIllustration />,
     available: true,
   },
 ];

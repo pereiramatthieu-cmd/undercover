@@ -12,7 +12,7 @@ export default function Home({ onJoin, gameType, onGoHome }) {
     if (!name.trim()) return setError("Entre ton prénom !");
     setLoading(true);
     setError("");
-    const createEvent = gameType === "lanote" ? "note:create" : gameType === "classement" ? "classement:create" : "room:create";
+    const createEvent = gameType === "lanote" ? "note:create" : gameType === "classement" ? "classement:create" : gameType === "quisuisje" ? "qsj:create" : "room:create";
     socket.emit(createEvent, { playerName: name.trim() }, (res) => {
       setLoading(false);
       if (res.success) {
@@ -28,7 +28,7 @@ export default function Home({ onJoin, gameType, onGoHome }) {
     if (!code.trim()) return setError("Entre le code de la room !");
     setLoading(true);
     setError("");
-    const joinEvent = gameType === "lanote" ? "note:join" : gameType === "classement" ? "classement:join" : "room:join";
+    const joinEvent = gameType === "lanote" ? "note:join" : gameType === "classement" ? "classement:join" : gameType === "quisuisje" ? "qsj:join" : "room:join";
     socket.emit(joinEvent, { playerName: name.trim(), code: code.trim().toUpperCase() }, (res) => {
       setLoading(false);
       if (res.success) {
@@ -60,6 +60,11 @@ export default function Home({ onJoin, gameType, onGoHome }) {
             <>
               <div className="logo">le <span>classement</span></div>
               <p className="text-muted mt-8">Le jeu des numéros secrets</p>
+            </>
+          ) : gameType === "quisuisje" ? (
+            <>
+              <div className="logo">qui <span>suis-je ?</span></div>
+              <p className="text-muted mt-8">Le jeu des personnages secrets</p>
             </>
           ) : (
             <>
@@ -144,12 +149,27 @@ export default function Home({ onJoin, gameType, onGoHome }) {
         <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "20px 24px" }}>
           <p className="section-label" style={{ marginBottom: 12 }}>Comment jouer</p>
           <div className="gap-8">
-            {[
+            {(gameType === "quisuisje" ? [
+              "Chacun reçoit un personnage secret que les autres voient",
+              "À ton tour, pose une question au groupe",
+              "Le groupe vote OUI ou NON simultanément",
+              "Tente de deviner ton personnage pour gagner !",
+            ] : gameType === "lanote" ? [
+              "Un joueur est désigné Maître et reçoit une note secrète (1-10)",
+              "Les autres posent des questions au Maître",
+              "Le Maître répond librement sans révéler son chiffre",
+              "Devinez la note — le plus proche marque un point !",
+            ] : gameType === "classement" ? [
+              "Chacun reçoit un numéro secret entre 1 et 100",
+              "Répondez à la question de façon cohérente avec votre numéro",
+              "Classez tous les joueurs du plus petit au plus grand numéro",
+              "Un point par bonne position dans votre classement !",
+            ] : [
               "Chaque joueur reçoit un mot secret",
               "Un joueur reçoit un mot similaire (l'undercover)",
               "2 tours pour donner des indices",
               "Vote pour désigner l'imposteur",
-            ].map((rule, i) => (
+            ]).map((rule, i) => (
               <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                 <span style={{ color: "var(--accent)", fontWeight: 700, fontSize: "0.85rem", minWidth: 20 }}>{i + 1}.</span>
                 <span style={{ color: "var(--text-muted)", fontSize: "0.88rem" }}>{rule}</span>

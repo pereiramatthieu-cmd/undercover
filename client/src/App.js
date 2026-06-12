@@ -7,6 +7,9 @@ import NoteResults from "./pages/NoteResults";
 import ClassementLobby from "./pages/ClassementLobby";
 import ClassementGame from "./pages/ClassementGame";
 import ClassementResults from "./pages/ClassementResults";
+import QSJLobby from "./pages/QSJLobby";
+import QSJGame from "./pages/QSJGame";
+import QSJResults from "./pages/QSJResults";
 import Home from "./pages/Home";
 import Lobby from "./pages/Lobby";
 import Game from "./pages/Game";
@@ -26,6 +29,8 @@ export default function App() {
   const [noteSecretNote, setNoteSecretNote] = useState(null);
   const [classementState, setClassementState] = useState(null);
   const [classementSecretNumber, setClassementSecretNumber] = useState(null);
+  const [qsjState, setQsjState] = useState(null);
+  const [qsjOthersCharacters, setQsjOthersCharacters] = useState({});
 
   useEffect(() => {
     socket.connect();
@@ -72,6 +77,22 @@ export default function App() {
       setClassementSecretNumber(number);
     });
 
+    socket.on("qsj:state", (state) => {
+      setQsjState(state);
+      if (state.state === "lobby") {
+        setQsjOthersCharacters({});
+        setPage("qsjLobby");
+      } else if (state.state === "playing") {
+        setPage("qsjGame");
+      } else if (state.state === "gameover") {
+        setPage("qsjResults");
+      }
+    });
+
+    socket.on("qsj:others_characters", ({ characters }) => {
+      setQsjOthersCharacters(characters);
+    });
+
     return () => {
       socket.off("game:state");
       socket.off("game:word");
@@ -80,6 +101,8 @@ export default function App() {
       socket.off("note:secret");
       socket.off("classement:state");
       socket.off("classement:secret");
+      socket.off("qsj:state");
+      socket.off("qsj:others_characters");
     };
   }, []);
 
@@ -95,6 +118,8 @@ export default function App() {
       setNoteSecretNote(null);
     } else if (gameType === "classement") {
       setClassementSecretNumber(null);
+    } else if (gameType === "quisuisje") {
+      setQsjOthersCharacters({});
     } else {
       setPage("lobby");
     }
@@ -119,6 +144,8 @@ export default function App() {
     setNoteSecretNote(null);
     setClassementState(null);
     setClassementSecretNumber(null);
+    setQsjState(null);
+    setQsjOthersCharacters({});
     if (socket.connected) socket.disconnect();
     setTimeout(() => socket.connect(), 300);
   };
@@ -172,6 +199,15 @@ export default function App() {
       )}
       {page === "classementResults" && (
         <ClassementResults classementState={classementState} myId={socket.id} />
+      )}
+      {page === "qsjLobby" && (
+        <QSJLobby qsjState={qsjState} roomCode={roomCode} playerName={playerName} myId={socket.id} />
+      )}
+      {page === "qsjGame" && (
+        <QSJGame qsjState={qsjState} myId={socket.id} othersCharacters={qsjOthersCharacters} />
+      )}
+      {page === "qsjResults" && (
+        <QSJResults qsjState={qsjState} myId={socket.id} onGoHome={handleGoHome} />
       )}
     </div>
   );
