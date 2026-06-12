@@ -388,6 +388,9 @@ function startCitationPhase2(code) {
 
   if (room.phaseTimer) { clearTimeout(room.phaseTimer); room.phaseTimer = null; }
 
+  const allAnswered = room.players.every((p) => room.answers[p.id] !== undefined);
+  if (allAnswered) { revealCitationRound(code); return; }
+
   room.phase = "phase2";
   room.phase2StartTime = Date.now();
 
